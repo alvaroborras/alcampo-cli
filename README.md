@@ -7,6 +7,8 @@ deps, structured `--json` output for programmatic/agent use.
 > Unofficial. Mercadona has no public API. Bring your own credentials; use at a
 > sane request rate. This talks to the same HTTP endpoints the website does.
 
+![Searching for a product and reading its price with --json](docs/media/demo.gif)
+
 ## Install
 
 **npm** — downloads the prebuilt binary for your platform on install:
@@ -352,19 +354,23 @@ always capping spend with `--max` and never submitting without explicit consent:
 
 ## Design / reliability
 
-Three layers, by IP-sensitivity:
+The CLI calls the same web endpoints the Mercadona site calls. There is no scraping of rendered pages.
 
-1. **Search → Algolia.** Not behind Mercadona's Akamai at all; works from any IP.
-   The public app-id **rotates** (`7UZJKL1GNI` → `7UZJKL1DJ0` …), so the CLI never
-   relies on a hardcoded value: it ships a last-known-good fallback and, on a stale-creds
-   signal (DNS failure / 401 / 403 / 404), **re-discovers the app-id, key and index from
-   the live SPA bundle**, caches them, and retries. Survives rotation automatically.
-2. **Catalog reads (`/api/...`)** — Akamai-fronted but served to anonymous GETs at
-   human-paced volume. Sends web-app-like headers to stay in monitor mode.
-3. **Auth + cart + checkout** — the only IP-sensitive part. Run from a **residential IP**
-   (local, or a box on your own network — not a flagged datacenter / serverless egress),
-   log in once and cache the token. A real browser is only needed as a *fallback* to mint
-   Akamai clearance if a challenge ever appears.
+- **Search** goes to Algolia, the search backend the site uses. The public app-id rotates, so the
+  CLI keeps a last-known-good fallback. On a stale-credentials response (DNS failure, 401, 403 or
+  404) it reads the app-id, key and index from the live site bundle, caches them, and retries.
+- **Catalog reads** (`/api/...`) are anonymous GET requests. Requests carry the headers the web app
+  sends (user agent, `accept-language`, app version). The TLS client hello is set to match
+  Chrome's, and the connection uses HTTP/1.1. If that setup fails, the CLI uses Go's standard
+  transport.
+- **Rate limits.** On HTTP 429 or 503 the client waits and retries a limited number of times. It
+  honours `Retry-After` when the server sends it, otherwise it uses exponential backoff with
+  jitter. `cart set-many` limits concurrent price lookups (`MERCADONA_CONCURRENCY`, 1 to 16).
+- **Fails closed.** `checkout submit` needs `--yes`, and if a
+  spending limit is set it refuses to submit when the order total is over the limit or can't be
+  fetched to check.
+- **Auth, cart and checkout** use your own account. Log in once and the token is cached in
+  `~/.mercadona/`. An expired token is refreshed once automatically when credentials are stored.
 
 ## Config
 
