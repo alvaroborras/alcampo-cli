@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/alvaroborras/alcampo-cli/internal/client"
 )
@@ -41,7 +42,7 @@ func cmdCheckout(args []string) error {
 		}
 		raw, err := cl.Slots(addr, cart.RegionID, cart.DefaultCheckoutGroup.ShippingGroupType)
 		if err != nil {
-			return err
+			return explainDestination(err)
 		}
 		return emitRaw(raw)
 	case "reserve":
@@ -58,7 +59,7 @@ func cmdCheckout(args []string) error {
 		}
 		raw, err := cl.ReserveSlot(*slotID, addr, cart.RegionID)
 		if err != nil {
-			return err
+			return explainDestination(err)
 		}
 		return emitRaw(raw)
 	case "summary":
@@ -97,6 +98,17 @@ func cmdCheckout(args []string) error {
 	default:
 		return fmt.Errorf("unknown checkout subcommand %q (addresses|slots|reserve|summary|finish)", sub)
 	}
+}
+
+// explainDestination turns the platform's "temporary delivery destination"
+// rejection into an actionable message: the session is still on the shop's
+// browse-only default destination, so the account needs a real address.
+func explainDestination(err error) error {
+	if strings.Contains(err.Error(), "TemporaryDeliveryDestinationNotAllowed") {
+		return fmt.Errorf("the cart is on the shop's temporary default destination, not a saved address — "+
+			"add/select a delivery address at %s (then pass --address <id> from `alcampo checkout addresses`): %w", client.BaseURL, err)
+	}
+	return err
 }
 
 func limitStr(maxEUR float64) string {

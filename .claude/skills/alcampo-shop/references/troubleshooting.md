@@ -33,6 +33,13 @@ sees. Import the logged-in browser session **first**, then fill the cart — or,
 it anonymously, note the lines (`alcampo cart get`), import the session, and re-apply them with
 `cart set-many`. (`alcampo logout` discards the CLI's session and its anonymous cart.)
 
+## "the cart is on the shop's temporary default destination"
+
+`checkout slots`/`reserve` need a real saved delivery address. A session that never picked one
+sits on the shop's browse-only default destination, which the slot service rejects. Have the user
+add or select their address at `compraonline.alcampo.es` (in the same browser session), then
+`alcampo checkout addresses` and pass `--address <id>`.
+
 ## A write fails with HTTP 403
 
 Writes carry the session's CSRF token (scraped from the shop's HTML). The CLI refreshes it once

@@ -26,10 +26,14 @@ func (c *Client) Addresses() (json.RawMessage, error) {
 // Slots lists delivery slots for a delivery destination (address id). The
 // region and shipping group come from the active cart.
 func (c *Client) Slots(deliveryDestinationID, regionID, shippingGroupType string) (json.RawMessage, error) {
+	// displayConfiguration and numberOfDays are what the desktop web app sends;
+	// the API rejects the request (400) without them.
 	body := map[string]any{
 		"deliveryDestinationId": deliveryDestinationID,
 		"regionId":              regionID,
 		"shippingGroupType":     shippingGroupType,
+		"displayConfiguration":  "DELIVERY_METHOD",
+		"numberOfDays":          7,
 	}
 	var raw json.RawMessage
 	return raw, c.DoJSON(http.MethodPost, c.BaseURL+"/api/ecomslots/v2/slots", body, &raw)

@@ -56,10 +56,11 @@ func (c *Client) SaveSession() error {
 
 // Customer is the projected /api/customer/v3/customers/current response.
 type Customer struct {
-	ID        string `json:"customerId"`
-	Email     string `json:"email"`
-	FirstName string `json:"firstName"`
-	LastName  string `json:"lastName"`
+	ID      string `json:"customerId"`
+	Details struct {
+		FullName string `json:"fullName"`
+		Email    string `json:"email"`
+	} `json:"details"`
 }
 
 // Me fetches the logged-in customer. An anonymous session gets a 401/403, which

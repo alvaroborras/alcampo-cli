@@ -60,8 +60,7 @@ func cmdWhoami(args []string) error {
 	if cf.jsonOut {
 		return emitRaw(raw)
 	}
-	name := strings.TrimSpace(cu.FirstName + " " + cu.LastName)
-	fmt.Printf("ok — logged in as %s %s (customer id=%s)\n", orDefault(name, "?"), angle(cu.Email), cu.ID)
+	fmt.Printf("ok — logged in as %s %s (customer id=%s)\n", orDefault(strings.TrimSpace(cu.Details.FullName), "?"), angle(cu.Details.Email), cu.ID)
 	return nil
 }
 

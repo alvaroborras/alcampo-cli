@@ -148,9 +148,10 @@ CLI's last step is `checkout finish`: it checks the payable total against your c
 **closed** if it can't read it) and prints the checkout URL. You review and pay there, with the
 same account and cart. **The CLI never places or pays for an order.**
 
-> Status: the checkout calls (`addresses`, `slots`, `reserve`, `summary`) use the endpoints and
-> request bodies the web app sends, but they haven't yet been run against a logged-in account.
-> Everything else in this README has been verified live.
+> Status: verified live with a logged-in session — `whoami`, `checkout addresses`, `checkout
+> summary` and the `checkout finish` budget gate. `checkout slots` reaches the API; it needs a
+> saved delivery address on the account (a session still on the shop's temporary default
+> destination is rejected, and the CLI says so). `checkout reserve` hasn't been run yet.
 
 ### Spending guard (agent safety)
 
