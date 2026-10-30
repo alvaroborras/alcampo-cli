@@ -30,6 +30,12 @@ type Config struct {
 	Defaults struct {
 		PostalCode string `toml:"postal_code"` // informational; the session cookie carries the real region
 	} `toml:"defaults"`
+	Session struct {
+		// Browser = "firefox" re-reads the session from the Firefox profile on
+		// every run (see `alcampo import-firefox --auto`).
+		Browser        string `toml:"browser"`
+		FirefoxProfile string `toml:"firefox_profile"` // empty = Firefox's default profile
+	} `toml:"session"`
 	Limits struct {
 		MaxEUR float64 `toml:"max_eur"` // refuse carts/checkouts over this total (0 = no limit)
 	} `toml:"limits"`

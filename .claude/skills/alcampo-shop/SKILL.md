@@ -92,6 +92,10 @@ anonymous or logged in — and **owns the cart**. The CLI caches its session in
      sanitized HAR export strips cookies).
   3. `alcampo whoami` → `ok — logged in as …`.
 
+  **Firefox users:** skip the copy-paste with `alcampo import-firefox --auto`. It reads the
+  session from the Firefox profile and re-syncs it on every run, which also keeps the WAF
+  clearance fresh (keep a shop tab open).
+
   CLI and browser then share **one cart**: what the CLI adds shows up in the browser, which is
   what makes the browser hand-off at payment work.
 

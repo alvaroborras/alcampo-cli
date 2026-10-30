@@ -12,6 +12,9 @@ couple of minutes from one IP trips it, and it clears after ~5 minutes.
 - **Use fewer requests:** one `batch` instead of many `search`es; reuse ids you already resolved;
   avoid re-running `product` for ids whose price you have.
 - **Lower parallelism:** `ALCAMPO_CONCURRENCY=1`.
+- **Firefox users: `alcampo import-firefox --auto`.** Every run then re-reads the session from
+  Firefox, carrying the `aws-waf-token` Firefox keeps fresh (keep a shop tab open). This is the
+  durable fix; the options below are one-offs.
 - **Import a browser clearance:** a request copied from a browser tab that has the shop open
   carries an `aws-waf-token` cookie, which satisfies the challenge for a while.
   `alcampo import-curl --file s.txt` (this also replaces the session — use the logged-in tab).

@@ -3,11 +3,14 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/alvaroborras/alcampo-cli/internal/client"
+	"github.com/alvaroborras/alcampo-cli/internal/config"
+	"github.com/alvaroborras/alcampo-cli/internal/firefox"
 )
 
 // common flags shared by every subcommand.
@@ -23,15 +26,54 @@ func addCommon(fs *flag.FlagSet) *common {
 
 // newClient builds a client on the cached session (~/.alcampo/session.json), so
 // the anonymous cart and any imported login carry over between runs. Cookie
-// rotations are written back as they happen. ALCAMPO_COOKIE, when set, replaces
-// the cached session for this run (and is then cached like any other).
+// rotations are written back as they happen. With browser sync on
+// ([session] browser = "firefox", or ALCAMPO_BROWSER=firefox) the session is
+// first refreshed from the Firefox profile — and again once if the WAF
+// challenges a request — so the CLI carries the browser's live clearance.
+// ALCAMPO_COOKIE, when set, replaces the session for this run.
 func newClient(_ *common) *client.Client {
 	cl := client.New()
 	cl.LoadSession()
+	cfg, _ := config.LoadConfig()
+	if strings.EqualFold(firstNonEmpty(os.Getenv("ALCAMPO_BROWSER"), cfg.Session.Browser), "firefox") {
+		var warned bool
+		sync := func() bool {
+			cookies, err := firefoxCookies(cfg.Session.FirefoxProfile)
+			if err == nil && cookies["global_sid"] == "" {
+				err = fmt.Errorf("no Alcampo session in Firefox (open %s there)", client.BaseURL)
+			}
+			if err != nil {
+				if !warned {
+					warned = true
+					fmt.Fprintf(os.Stderr, "⚠ Firefox session sync failed, using the cached session: %v\n", err)
+				}
+				return false
+			}
+			changed := cl.SyncCookies(cookies)
+			if changed {
+				_ = cl.SaveSession()
+			}
+			return changed
+		}
+		sync()
+		cl.OnChallenge = sync
+	}
 	if ck := os.Getenv("ALCAMPO_COOKIE"); ck != "" {
 		cl.SetCookieHeader(ck)
 	}
 	return cl
+}
+
+// firefoxCookies reads the shop's cookies from the given (or default) profile.
+func firefoxCookies(profile string) (map[string]string, error) {
+	if profile == "" {
+		p, err := firefox.DefaultProfile()
+		if err != nil {
+			return nil, err
+		}
+		profile = p
+	}
+	return firefox.Cookies(profile, "compraonline.alcampo.es")
 }
 
 // lookupConcurrency bounds concurrent product GETs (pricing a basket, resolving

@@ -11,6 +11,7 @@ import (
 
 	"github.com/alvaroborras/alcampo-cli/internal/client"
 	"github.com/alvaroborras/alcampo-cli/internal/config"
+	"github.com/alvaroborras/alcampo-cli/internal/firefox"
 )
 
 // ---- session commands ----
@@ -120,6 +121,57 @@ func cmdImportHar(args []string) error {
 		return err
 	}
 	return importCookies(cf, sess.Cookies, "HAR")
+}
+
+// import-firefox reads the session straight from the user's Firefox profile
+// (the sqlite3 binary does the reading; Firefox may stay open). With --auto it
+// also turns on per-run sync, so the CLI keeps carrying the browser's fresh
+// aws-waf-token instead of a copy that expires within minutes.
+func cmdImportFirefox(args []string) error {
+	fs := flag.NewFlagSet("import-firefox", flag.ExitOnError)
+	cf := addCommon(fs)
+	profile := fs.String("profile", "", "Firefox profile directory (default: Firefox's default profile)")
+	auto := fs.Bool("auto", false, "also sync from Firefox automatically on every run (saved to config.toml)")
+	off := fs.Bool("off", false, "turn automatic Firefox sync off again")
+	_ = fs.Parse(reorderArgs(fs, args))
+
+	cfg, _ := config.LoadConfig()
+	if *off {
+		cfg.Session.Browser, cfg.Session.FirefoxProfile = "", ""
+		if err := config.SaveConfig(cfg); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "automatic Firefox sync turned off (the cached session stays as it is)")
+		return nil
+	}
+	dir := *profile
+	if dir == "" {
+		dir = cfg.Session.FirefoxProfile
+	}
+	if dir == "" {
+		p, err := firefox.DefaultProfile()
+		if err != nil {
+			return err
+		}
+		dir = p
+	}
+	cookies, err := firefox.Cookies(dir, "compraonline.alcampo.es")
+	if err != nil {
+		return err
+	}
+	if len(cookies) == 0 {
+		return fmt.Errorf("no compraonline.alcampo.es cookies in the Firefox profile %s — open the shop in Firefox first", dir)
+	}
+	if *auto {
+		cfg.Session.Browser = "firefox"
+		cfg.Session.FirefoxProfile = *profile // empty keeps following Firefox's default
+		if err := config.SaveConfig(cfg); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "automatic Firefox sync on: every run re-reads the session from Firefox (keep a shop tab open so its WAF token stays fresh; `alcampo import-firefox --off` to stop)")
+	}
+	fmt.Fprintf(os.Stderr, "Firefox profile: %s\n", dir)
+	return importCookies(cf, cookies, "Firefox")
 }
 
 // set-cookie seeds the session from a raw Cookie header (DevTools → Application

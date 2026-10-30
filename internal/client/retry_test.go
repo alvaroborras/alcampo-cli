@@ -132,3 +132,23 @@ func TestIsWAFChallenge(t *testing.T) {
 		t.Fatal("the challenge header alone must be recognised")
 	}
 }
+
+func TestOnChallengeRetriesOnceWhenSessionChanged(t *testing.T) {
+	rt := &seqRT{codes: []int{202, 200}}
+	c := testClient(rt)
+	calls := 0
+	c.OnChallenge = func() bool { calls++; return true }
+	if err := c.DoJSON("GET", "https://x/api/", nil, nil); err != nil {
+		t.Fatalf("expected success after re-sync, got %v", err)
+	}
+	if calls != 1 || rt.calls != 2 {
+		t.Fatalf("hook calls=%d http calls=%d, want 1 and 2", calls, rt.calls)
+	}
+
+	rt2 := &seqRT{codes: []int{202, 202, 202}}
+	c2 := testClient(rt2)
+	c2.OnChallenge = func() bool { return false } // nothing new in the browser
+	if err := c2.DoJSON("GET", "https://x/api/", nil, nil); !errors.Is(err, ErrWAFChallenge) || rt2.calls != 1 {
+		t.Fatalf("no change → no retry; got err=%v calls=%d", err, rt2.calls)
+	}
+}

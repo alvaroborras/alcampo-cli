@@ -91,6 +91,33 @@ func (c *Client) UseCookies(cookies map[string]string) {
 	c.mu.Unlock()
 }
 
+// SyncCookies adopts a browser's current cookies as the session. Unlike
+// UseCookies it keeps the CSRF token when the session cookie is unchanged, so
+// syncing on every run doesn't cost an extra page fetch. Reports whether any
+// cookie value changed.
+func (c *Client) SyncCookies(cookies map[string]string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	changed := len(cookies) != len(c.cookies)
+	for k, v := range cookies {
+		if c.cookies[k] != v {
+			changed = true
+		}
+	}
+	if !changed {
+		return false
+	}
+	if cookies[sessionCookie] != c.cookies[sessionCookie] {
+		c.csrf = ""
+	}
+	c.cookies = make(map[string]string, len(cookies))
+	for k, v := range cookies {
+		c.cookies[k] = v
+	}
+	c.dirty = true
+	return true
+}
+
 // CookieNames lists the session's cookie names (never values) for reporting.
 func (c *Client) CookieNames() []string {
 	c.mu.Lock()

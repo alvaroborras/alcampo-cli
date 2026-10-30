@@ -41,6 +41,8 @@ func main() {
 		err = cmdImportCurl(os.Args[2:])
 	case "import-har":
 		err = cmdImportHar(os.Args[2:])
+	case "import-firefox":
+		err = cmdImportFirefox(os.Args[2:])
 	case "set-cookie":
 		err = cmdSetCookie(os.Args[2:])
 	case "logout":
@@ -109,6 +111,9 @@ SESSION (login happens in the browser; the CLI imports its cookies):
   import-curl [--file f]  import a session from a DevTools 'Copy as cURL (bash)' of any
                           request to the shop ('-' = stdin)
   import-har [--file f]   import a session from a DevTools 'Export HAR (with sensitive data)'
+  import-firefox          import the session from your Firefox profile (needs sqlite3);
+                          --auto re-syncs it on every run, keeping the browser's fresh
+                          WAF clearance (keep a shop tab open); --off disables; --profile <dir>
   set-cookie [--stdin]    import a raw 'name=value; …' Cookie header
   whoami                  show whether the session is logged in, and as whom
   logout                  forget the cached session (starts a fresh anonymous cart)
@@ -133,6 +138,7 @@ COMMON FLAGS (may go anywhere after the (sub)command):
 ENVIRONMENT:
   ALCAMPO_CONFIG_DIR      state dir (default ~/.alcampo)
   ALCAMPO_COOKIE          use this Cookie header as the session for this run
+  ALCAMPO_BROWSER=firefox sync the session from Firefox for this run (like import-firefox --auto)
   ALCAMPO_CONCURRENCY     parallel product lookups/searches (1–16, default 2)
 
   version | help

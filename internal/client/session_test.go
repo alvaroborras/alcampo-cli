@@ -57,3 +57,21 @@ func TestSameSessionCookieKeepsCSRF(t *testing.T) {
 		t.Fatalf("csrf dropped on an unchanged session cookie")
 	}
 }
+
+// Browser sync runs every command: an unchanged session must keep its CSRF
+// token (no extra page fetch), a new session must drop it.
+func TestSyncCookies(t *testing.T) {
+	t.Setenv("ALCAMPO_CONFIG_DIR", t.TempDir())
+	c := New()
+	c.UseCookies(map[string]string{"global_sid": "s1", "aws-waf-token": "t1"})
+	c.csrf = "tok"
+	if c.SyncCookies(map[string]string{"global_sid": "s1", "aws-waf-token": "t1"}) {
+		t.Fatal("identical cookies must report no change")
+	}
+	if !c.SyncCookies(map[string]string{"global_sid": "s1", "aws-waf-token": "t2"}) || c.csrf != "tok" {
+		t.Fatalf("a refreshed WAF token must sync and keep csrf (csrf=%q)", c.csrf)
+	}
+	if !c.SyncCookies(map[string]string{"global_sid": "s2"}) || c.csrf != "" || c.cookies["aws-waf-token"] != "" {
+		t.Fatalf("a new session must replace the jar and drop csrf: %v csrf=%q", c.cookies, c.csrf)
+	}
+}

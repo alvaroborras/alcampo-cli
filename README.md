@@ -125,6 +125,18 @@ alcampo import-curl --file session.txt       # or: pbpaste | alcampo import-curl
 alcampo whoami                               # → ok — logged in as Nombre Apellido <you@…>
 ```
 
+**Firefox users — the easiest and most reliable option:**
+
+```bash
+alcampo import-firefox --auto     # read the session from your Firefox profile, and re-sync every run
+```
+
+It reads the shop's cookies from your default Firefox profile (via the `sqlite3` command, on a copy
+of the database, so Firefox can stay open). `--auto` saves `[session] browser = "firefox"` to
+config, so every command re-reads the session first, and again once if the WAF challenges a request.
+That way the CLI always carries the `aws-waf-token` clearance Firefox keeps refreshing; keep a
+compraonline.alcampo.es tab open. `--profile <dir>` picks another profile; `--off` turns the sync off.
+
 Alternatives: `alcampo import-har --file shop.har` (DevTools → **Export HAR (with sensitive
 data)…** — the default sanitized export strips cookies), or `alcampo set-cookie --stdin` with a
 raw `name=value; …` Cookie header. `ALCAMPO_COOKIE` overrides the session for a single run.
@@ -193,7 +205,8 @@ scrape rendered pages. The one exception is the CSRF token, which it reads from 
   one IP tripped it, and it cleared after about 5 minutes. To avoid it, the CLI spaces requests
   ≥250 ms apart and runs at most 2 lookups in parallel (`ALCAMPO_CONCURRENCY`, 1–16). If it's
   challenged anyway, it stops with a clear error instead of hammering. A browser-imported
-  session carrying `aws-waf-token` satisfies the challenge for a while. The CLI doesn't try to
+  session carrying `aws-waf-token` satisfies the challenge, but that token expires within
+  minutes. `import-firefox --auto` keeps it current by re-reading Firefox's. The CLI doesn't try to
   solve challenges itself.
 - **Rate limits.** On HTTP 429/503 it retries with `Retry-After` or exponential backoff plus jitter.
 - **Region.** Catalog and delivery follow the session's region: the shop's default region for an
@@ -204,7 +217,8 @@ scrape rendered pages. The one exception is the CSRF token, which it reads from 
 State lives in `~/.alcampo/` (override with `ALCAMPO_CONFIG_DIR`), all `0600`:
 
 - `session.json` — cookies + CSRF token (machine-managed; **secret** — it *is* your login).
-- `config.toml` — user-authored: `[limits] max_eur`.
+- `config.toml` — user-authored: `[limits] max_eur`; `[session] browser = "firefox"` (+ optional
+  `firefox_profile`) for per-run Firefox sync.
 
 ## Claude skill
 

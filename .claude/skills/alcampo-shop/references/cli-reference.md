@@ -49,6 +49,7 @@ HTML table in the `nutritionalData` field (the human output parses it).
 |---|---|
 | `alcampo import-curl [--file f]` | import cookies from a DevTools "Copy as cURL (bash)" (`-` = stdin) |
 | `alcampo import-har [--file f]` | import cookies from "Export HAR (with sensitive data)" |
+| `alcampo import-firefox [--auto] [--off] [--profile dir]` | import from the Firefox profile (needs `sqlite3`); `--auto` re-syncs every run |
 | `alcampo set-cookie [--stdin]` | import a raw `name=value; …` Cookie header |
 | `alcampo whoami` | logged in (name, email, customer id) or anonymous |
 | `alcampo logout` | delete the cached session (next run starts a new anonymous cart) |

@@ -48,6 +48,12 @@ type Client struct {
 	MinInterval time.Duration
 	paceMu      sync.Mutex
 	nextSlot    time.Time
+
+	// OnChallenge, when set, is called once when the WAF challenges a request.
+	// It may refresh the session from the browser (which keeps its clearance
+	// token fresh) and reports whether anything changed; if so the request is
+	// retried once.
+	OnChallenge func() bool
 }
 
 // New returns a Client with web-app-like defaults and an empty (anonymous)
@@ -189,8 +195,15 @@ func capWait(d time.Duration) time.Duration {
 // gracefully instead of failing. Non-throttle errors return immediately.
 func (c *Client) doWithBackoff(method, url string, body, out any) error {
 	backoff := defaultRetryBase
+	challenged := false
 	for attempt := 0; ; attempt++ {
 		err := c.doOnce(method, url, body, out)
+		if errors.Is(err, ErrWAFChallenge) && !challenged && c.OnChallenge != nil {
+			challenged = true
+			if c.OnChallenge() {
+				err = c.doOnce(method, url, body, out)
+			}
+		}
 		if !isRateLimited(err) || attempt >= maxRetries {
 			return err
 		}
