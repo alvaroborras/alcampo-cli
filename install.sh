@@ -1,15 +1,15 @@
 #!/bin/sh
-# mercadona installer — downloads a prebuilt binary from GitHub Releases.
+# alcampo installer — downloads a prebuilt binary from GitHub Releases.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ivorpad/mercadona-cli/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/alvaroborras/alcampo-cli/main/install.sh | sh
 #
 # Env overrides:
-#   MERCADONA_VERSION=v0.1.0     install a specific tag (default: latest release)
-#   MERCADONA_INSTALL_DIR=/path  install location (default: /usr/local/bin, else ~/.local/bin)
+#   ALCAMPO_VERSION=v0.1.0     install a specific tag (default: latest release)
+#   ALCAMPO_INSTALL_DIR=/path  install location (default: /usr/local/bin, else ~/.local/bin)
 set -eu
 
-REPO="ivorpad/mercadona-cli"
-BIN="mercadona"
+REPO="alvaroborras/alcampo-cli"
+BIN="alcampo"
 
 info() { printf '\033[1;34m==>\033[0m %s\n' "$1" >&2; }
 err() {
@@ -36,12 +36,12 @@ arm64 | aarch64) arch=arm64 ;;
 esac
 
 # --- resolve version (tag carries the leading v; ver is bare for the asset name) ---
-tag="${MERCADONA_VERSION:-}"
+tag="${ALCAMPO_VERSION:-}"
 if [ -z "$tag" ]; then
 	info "resolving latest release…"
 	tag=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" |
 		grep '"tag_name"' | head -n1 | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
-	[ -n "$tag" ] || err "could not determine the latest version (set MERCADONA_VERSION=vX.Y.Z)"
+	[ -n "$tag" ] || err "could not determine the latest version (set ALCAMPO_VERSION=vX.Y.Z)"
 fi
 case "$tag" in v*) ver="${tag#v}" ;; *) ver="$tag" tag="v$tag" ;; esac
 
@@ -77,7 +77,7 @@ tar -xzf "${tmp}/${asset}" -C "$tmp" || err "failed to extract ${asset}"
 chmod +x "${tmp}/${BIN}"
 
 # --- choose an install dir ---
-dir="${MERCADONA_INSTALL_DIR:-}"
+dir="${ALCAMPO_INSTALL_DIR:-}"
 if [ -z "$dir" ]; then
 	if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
 		dir=/usr/local/bin
@@ -87,7 +87,7 @@ if [ -z "$dir" ]; then
 fi
 mkdir -p "$dir" || err "cannot create install dir: $dir"
 
-mv "${tmp}/${BIN}" "${dir}/${BIN}" || err "failed to install to ${dir} (try sudo, or set MERCADONA_INSTALL_DIR)"
+mv "${tmp}/${BIN}" "${dir}/${BIN}" || err "failed to install to ${dir} (try sudo, or set ALCAMPO_INSTALL_DIR)"
 info "installed ${BIN} ${ver} → ${dir}/${BIN}"
 
 case ":${PATH}:" in

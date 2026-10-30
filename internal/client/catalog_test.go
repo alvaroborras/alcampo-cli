@@ -2,75 +2,96 @@ package client
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
-// The nutrition table is the value this projection exists to surface, and the
-// API shape is fiddly (a list, nested energy rows, optional sub_nutrients). Pin
-// the decode so a struct-tag typo or a reshape can't silently drop it.
-func TestProductViewNutrition(t *testing.T) {
-	// Trimmed to the real product 17559 (empanadilla) payload shape.
-	const raw = `{
-	  "id":"17559","display_name":"Empanadilla de bacon 11% y queso 32%",
-	  "product_information":{
-	    "nutritional_information":[
-	      {"per_quantity":"Por 100 g",
-	       "energy_joules":{"name":"Valor","amount":"1598.0","unit":"kJ"},
-	       "energy_calories":{"name":"Energético","amount":"385.0","unit":"kcal"},
-	       "nutrients":[
-	         {"name":"Grasas","amount":"29.0","unit":"g","sub_nutrients":{"subtitle":"de las cuales:","items":[{"name":"Saturadas","amount":"15.0","unit":"g"}]}},
-	         {"name":"Proteínas","amount":"9.2","unit":"g","sub_nutrients":null}
-	       ],
-	       "accessible_text":"Por 100 gramos..."}
-	    ]
-	  }
-	}`
-	var pv ProductView
-	if err := json.Unmarshal([]byte(raw), &pv); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	n := pv.Nutrition()
+// The shop ships nutrition as an HTML table; this is the shape seen live on
+// product 54180 (2026-10-30).
+const nutritionHTML = `<table><tbody><tr><th>Valores medios por:</th><th>100g</th></tr><tr><td><span>Valor energético (Kj)</span></td><td><span>193.0 Kj</span></td></tr><tr><td><span>Grasas</span></td><td><span>1.6 g</span></td></tr><tr><td><span>Grasas saturadas</span></td><td><span>1.0 g</span></td></tr><tr><td></td></tr></tbody></table>`
+
+func TestParseNutritionHTML(t *testing.T) {
+	n := ParseNutritionHTML(nutritionHTML)
 	if n == nil {
-		t.Fatal("Nutrition() = nil, want a table")
+		t.Fatal("expected a table")
 	}
-	if n.PerQuantity != "Por 100 g" {
-		t.Errorf("PerQuantity = %q, want %q", n.PerQuantity, "Por 100 g")
-	}
-	if n.EnergyCalories.Amount != "385.0" || n.EnergyCalories.Unit != "kcal" {
-		t.Errorf("EnergyCalories = %q %q, want 385.0 kcal", n.EnergyCalories.Amount, n.EnergyCalories.Unit)
-	}
-	if len(n.Nutrients) != 2 {
-		t.Fatalf("len(Nutrients) = %d, want 2", len(n.Nutrients))
-	}
-	g := n.Nutrients[0]
-	if g.Name != "Grasas" || g.SubNutrients == nil {
-		t.Fatalf("Nutrients[0] = %+v, want Grasas with sub_nutrients", g)
-	}
-	if len(g.SubNutrients.Items) != 1 || g.SubNutrients.Items[0].Name != "Saturadas" || g.SubNutrients.Items[0].Amount != "15.0" {
-		t.Errorf("Grasas sub_nutrients = %+v, want [Saturadas 15.0]", g.SubNutrients.Items)
-	}
-	if n.Nutrients[1].SubNutrients != nil {
-		t.Errorf("Proteínas SubNutrients = %+v, want nil", n.Nutrients[1].SubNutrients)
+	want := &Nutrition{PerQuantity: "100g", Rows: []Nutrient{
+		{"Valor energético (Kj)", "193.0 Kj"},
+		{"Grasas", "1.6 g"},
+		{"Grasas saturadas", "1.0 g"},
+	}}
+	if !reflect.DeepEqual(n, want) {
+		t.Fatalf("got %+v, want %+v", n, want)
 	}
 }
 
-// Most products (staples) come back with product_information null or absent, and
-// some callers hold a nil view — Nutrition() must report "no table", not panic.
-func TestProductViewNutritionAbsent(t *testing.T) {
-	for name, raw := range map[string]string{
-		"null":   `{"id":"6245","product_information":null}`,
-		"absent": `{"id":"6245"}`,
-		"empty":  `{"id":"6245","product_information":{"nutritional_information":[]}}`,
-	} {
-		var pv ProductView
-		if err := json.Unmarshal([]byte(raw), &pv); err != nil {
-			t.Fatalf("%s: unmarshal: %v", name, err)
-		}
-		if got := pv.Nutrition(); got != nil {
-			t.Errorf("%s: Nutrition() = %+v, want nil", name, got)
+func TestParseNutritionHTMLEmpty(t *testing.T) {
+	for _, in := range []string{"", "  ", "<table><tr><th>Valores medios por:</th><th>100g</th></tr></table>"} {
+		if n := ParseNutritionHTML(in); n != nil {
+			t.Errorf("ParseNutritionHTML(%q) = %+v, want nil", in, n)
 		}
 	}
-	if got := (*ProductView)(nil).Nutrition(); got != nil {
-		t.Errorf("nil receiver: Nutrition() = %+v, want nil", got)
+}
+
+func TestProductDetailNutritionFromField(t *testing.T) {
+	raw := `{"product":{"productId":"u","retailerProductId":"54180"},"bopData":{"fields":[{"title":"brand","content":"X"},{"title":"nutritionalData","content":` + mustJSON(nutritionHTML) + `}]}}`
+	var d ProductDetail
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		t.Fatal(err)
+	}
+	if n := d.Nutrition(); n == nil || len(n.Rows) != 3 {
+		t.Fatalf("Nutrition() = %+v, want 3 rows", n)
+	}
+	var none ProductDetail
+	if none.Nutrition() != nil {
+		t.Fatal("no nutritionalData field → nil")
+	}
+}
+
+func mustJSON(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func TestRefFormat(t *testing.T) {
+	cases := map[string]string{
+		"fop.price.per.litre": "l",
+		"fop.price.per.kg":    "kg",
+		"fop.price.per.each":  "ud",
+		"":                    "",
+	}
+	for unit, want := range cases {
+		p := Product{UnitPrice: UnitCost{Unit: unit}}
+		if got := p.RefFormat(); got != want {
+			t.Errorf("RefFormat(%q) = %q, want %q", unit, got, want)
+		}
+	}
+}
+
+func TestIDAndUUID(t *testing.T) {
+	if !IsUUID("176cfd5e-afa9-4aa1-8b6f-fe3d757c535e") || IsUUID("54180") {
+		t.Fatal("IsUUID misclassifies")
+	}
+	if (Product{ProductID: "u", RetailerProductID: "54180"}).ID() != "54180" {
+		t.Fatal("ID() should prefer the retailer id")
+	}
+	if (Product{ProductID: "u"}).ID() != "u" {
+		t.Fatal("ID() should fall back to the UUID")
+	}
+}
+
+// A product can appear in several groups of one page; it must be listed once.
+func TestProductPageDedupes(t *testing.T) {
+	raw := `{"productGroups":[{"decoratedProducts":[{"productId":"a"},{"productId":"b"}]},{"decoratedProducts":[{"productId":"a"},{"productId":"c"}]}]}`
+	var pp productPage
+	if err := json.Unmarshal([]byte(raw), &pp); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, p := range pp.products() {
+		ids = append(ids, p.ProductID)
+	}
+	if !reflect.DeepEqual(ids, []string{"a", "b", "c"}) {
+		t.Fatalf("ids = %v", ids)
 	}
 }

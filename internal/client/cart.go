@@ -2,163 +2,203 @@ package client
 
 import (
 	"encoding/json"
-	"fmt"
+	"net/http"
 )
 
-// Cart mirrors GET /api/customers/<id>/cart/. Note the read and write shapes
-// differ: GET nests the product object under each line; PUT wants a flat
-// product_id (see CartLine's custom (Un)MarshalJSON).
+// The cart belongs to the session cookie, not to an account: an anonymous
+// visitor has one too, and logging in merges it into the customer's. So every
+// cart command works without login as long as the session is kept (it is cached
+// in ~/.alcampo/session.json).
+
+const cartAPI = "/api/cart"
+
+// Cart mirrors GET /api/cart/v1/carts/active.
 type Cart struct {
-	ID            string     `json:"id"`
-	Version       int        `json:"version"`
-	ProductsCount int        `json:"products_count"`
-	Lines         []CartLine `json:"lines"`
-	Summary       struct {
-		Total string `json:"total"`
-	} `json:"summary"`
+	CartID                string     `json:"cartId"`
+	RegionID              string     `json:"regionId"`
+	DeliveryDestinationID string     `json:"deliveryDestinationId"`
+	Items                 []CartItem `json:"items"`
+	ItemGroups            []struct {
+		Items []CartItem `json:"items"`
+	} `json:"itemGroups"`
+	Totals               CartTotals `json:"totals"`
+	DefaultCheckoutGroup struct {
+		ShippingGroupType        string   `json:"shippingGroupType"`
+		CanCheckout              bool     `json:"canCheckout"`
+		CheckoutRestrictions     []string `json:"checkoutRestrictions"`
+		MinimumCheckoutThreshold Money    `json:"minimumCheckoutThreshold"`
+	} `json:"defaultCheckoutGroup"`
 }
 
-// CartLine is one product row, normalized to a flat product id in both
-// directions. Quantity is a float: the API returns it as 1.0, and weight/bulk
-// products can be fractional. DisplayName/UnitPrice/Ref* are populated from the
-// GET shape (the nested product object) for human display and local pricing; they
-// are empty on PUT-built lines and are never sent back (see MarshalJSON).
-type CartLine struct {
-	ProductID   string
-	Quantity    float64
-	Sources     []any
-	DisplayName string // product.display_name (GET only)
-	UnitPrice   string // product.price_instructions.unit_price, e.g. "6.00" (GET only)
-	RefPrice    string // product.price_instructions.reference_price (GET only)
-	RefFormat   string // product.price_instructions.reference_format, e.g. "kg" (GET only)
+// CartTotals is the money summary of a cart (or of an apply-quantity result).
+type CartTotals struct {
+	ItemPriceAfterPromos Money `json:"itemPriceAfterPromos"` // what the items cost, promos applied
+	ItemsRetailPrice     Money `json:"itemsRetailPrice"`     // before promos
+	SavingsPrice         Money `json:"savingsPrice"`
 }
 
-// UnmarshalJSON reads the GET shape, where the product object carries the id,
-// display name and price (and tolerates a flat product_id just in case).
-func (l *CartLine) UnmarshalJSON(b []byte) error {
-	var raw struct {
-		Quantity  float64 `json:"quantity"`
-		ProductID string  `json:"product_id"`
-		Sources   []any   `json:"sources"`
-		Product   struct {
-			ID          flexStr `json:"id"`
-			DisplayName string  `json:"display_name"`
-			Price       struct {
-				UnitPrice       string `json:"unit_price"`
-				ReferencePrice  string `json:"reference_price"`
-				ReferenceFormat string `json:"reference_format"`
-			} `json:"price_instructions"`
-		} `json:"product"`
+// CartItem is one line. Price is the unit price; TotalPrices.FinalPrice the line
+// total after promos. The API returns only the productId UUID, so the display
+// fields (RetailerProductID, Name) are filled in by DecorateCart.
+type CartItem struct {
+	ProductID   string  `json:"productId"`
+	Quantity    float64 `json:"quantity"`
+	Price       Money   `json:"price"`
+	TotalPrices struct {
+		FinalPrice Money `json:"finalPrice"`
+	} `json:"totalPrices"`
+
+	RetailerProductID string `json:"retailerProductId,omitempty"`
+	Name              string `json:"name,omitempty"`
+}
+
+// Lines returns the cart's items, from the flat list or, failing that, the
+// grouped view (some responses only populate one of them).
+func (c *Cart) Lines() []CartItem {
+	if len(c.Items) > 0 {
+		return c.Items
 	}
-	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
+	var out []CartItem
+	for _, g := range c.ItemGroups {
+		out = append(out, g.Items...)
 	}
-	l.Quantity = raw.Quantity
-	l.Sources = raw.Sources
-	l.ProductID = raw.ProductID
-	if l.ProductID == "" {
-		l.ProductID = raw.Product.ID.String()
-	}
-	l.DisplayName = raw.Product.DisplayName
-	l.UnitPrice = raw.Product.Price.UnitPrice
-	l.RefPrice = raw.Product.Price.ReferencePrice
-	l.RefFormat = raw.Product.Price.ReferenceFormat
-	return nil
+	return out
 }
 
-// MarshalJSON writes the PUT shape: a flat product_id with sources.
-func (l CartLine) MarshalJSON() ([]byte, error) {
-	sources := l.Sources
-	if sources == nil {
-		sources = []any{}
-	}
-	return json.Marshal(map[string]any{
-		"quantity":   l.Quantity,
-		"product_id": l.ProductID,
-		"sources":    sources,
-	})
-}
-
-func (c *Client) cartURL() string {
-	return fmt.Sprintf("%s/api/customers/%s/cart/?lang=%s&wh=%s", c.BaseURL, c.CustomerID, c.Lang, c.Warehouse)
-}
-
-// GetCart returns the projected cart plus the full raw JSON.
+// GetCart returns the projected active cart plus the full raw JSON.
 func (c *Client) GetCart() (*Cart, json.RawMessage, error) {
-	if err := c.EnsureCustomer(); err != nil {
-		return nil, nil, err
-	}
 	var raw json.RawMessage
-	if err := c.DoJSON("GET", c.cartURL(), nil, &raw); err != nil {
+	if err := c.DoJSON(http.MethodGet, c.BaseURL+cartAPI+"/v1/carts/active", nil, &raw); err != nil {
 		return nil, nil, err
 	}
 	var cart Cart
 	_ = json.Unmarshal(raw, &cart) // best-effort projection; raw is the source of truth
+	if len(cart.Items) == 0 {
+		cart.Items = cart.Lines()
+	}
 	return &cart, raw, nil
 }
 
-// PutCart writes the desired line set. The observed web request sends {id, lines}
-// (no version), so we match that shape.
-//
-// Optimistic concurrency (sending Version / an If-Match) is deliberately NOT used:
-// the backend is eventually consistent (reads lag writes), so a GET often returns a
-// stale version and an enforced match would spuriously 409. The CLI sidesteps the
-// race instead by folding all changes into a single PUT (see cart set-many). Whether
-// the backend actually honours a version is unverified — testing it mutates a live
-// cart, so it was left for a disposable-account experiment, not the user's real cart.
-func (c *Client) PutCart(cart *Cart) (json.RawMessage, error) {
-	body := map[string]any{"id": cart.ID, "lines": cart.Lines}
-	var raw json.RawMessage
-	return raw, c.DoJSON("PUT", c.cartURL(), body, &raw)
-}
-
-// AddLine adds qty to a product's existing quantity (creating the line if new).
-func (c *Client) AddLine(productID string, qty float64) (json.RawMessage, error) {
-	return c.mutateLine(productID, qty, true)
-}
-
-// SetLine sets a product's absolute quantity (0 removes it).
-func (c *Client) SetLine(productID string, qty float64) (json.RawMessage, error) {
-	return c.mutateLine(productID, qty, false)
-}
-
-func (c *Client) mutateLine(productID string, qty float64, add bool) (json.RawMessage, error) {
-	cart, _, err := c.GetCart()
+// DecorateCart fills in each line's retailer id and name with one product
+// lookup. Best-effort: on failure the lines keep their UUIDs.
+func (c *Client) DecorateCart(cart *Cart) {
+	ids := make([]string, 0, len(cart.Items))
+	for _, it := range cart.Items {
+		ids = append(ids, it.ProductID)
+	}
+	ps, err := c.Decorate(ids)
 	if err != nil {
-		return nil, err
+		return
 	}
-	cart.Lines = upsertLine(cart.Lines, productID, qty, add)
-	return c.PutCart(cart)
-}
-
-// ApplyLine returns lines with one change applied — additive (add=true) or an
-// absolute set (add=false, qty 0 removes the line) — without mutating the input.
-// Exported so the CLI can fold several changes into a desired basket and price it
-// for the budget guard BEFORE issuing a single PutCart (see `cart set-many`).
-func ApplyLine(lines []CartLine, productID string, qty float64, add bool) []CartLine {
-	return upsertLine(lines, productID, qty, add)
-}
-
-func upsertLine(lines []CartLine, productID string, qty float64, add bool) []CartLine {
-	out := make([]CartLine, 0, len(lines)+1)
-	found := false
-	for _, l := range lines {
-		if l.ProductID == productID {
-			found = true
-			if add {
-				l.Quantity += qty
-			} else {
-				l.Quantity = qty
-			}
-			if l.Quantity > 0 {
-				out = append(out, l)
-			}
-			continue // drop the line if quantity fell to <= 0
+	byID := make(map[string]Product, len(ps))
+	for _, p := range ps {
+		byID[p.ProductID] = p
+	}
+	for i := range cart.Items {
+		if p, ok := byID[cart.Items[i].ProductID]; ok {
+			cart.Items[i].RetailerProductID = p.RetailerProductID
+			cart.Items[i].Name = p.Name
 		}
-		out = append(out, l)
 	}
-	if !found && qty > 0 {
-		out = append(out, CartLine{Quantity: qty, ProductID: productID, Sources: []any{}})
+}
+
+// QuantityDelta is one apply-quantity entry. Quantity is RELATIVE: +2 adds two,
+// -1 removes one, and overshooting below zero removes the line.
+type QuantityDelta struct {
+	ProductID string  `json:"productId"`
+	Quantity  float64 `json:"quantity"`
+}
+
+// ApplyResult is the projected apply-quantity response.
+type ApplyResult struct {
+	BasketUpdateResult struct {
+		ItemGroups []struct {
+			Items []CartItem `json:"items"`
+		} `json:"itemGroups"`
+		Totals CartTotals `json:"totals"`
+	} `json:"basketUpdateResult"`
+}
+
+// Items returns the cart lines after the update.
+func (r *ApplyResult) Items() []CartItem {
+	var out []CartItem
+	for _, g := range r.BasketUpdateResult.ItemGroups {
+		out = append(out, g.Items...)
+	}
+	return out
+}
+
+// ApplyQuantities applies many relative changes in ONE write.
+func (c *Client) ApplyQuantities(deltas []QuantityDelta) (*ApplyResult, json.RawMessage, error) {
+	var raw json.RawMessage
+	if err := c.DoJSON(http.MethodPost, c.BaseURL+cartAPI+"/v1/carts/active/apply-quantity", deltas, &raw); err != nil {
+		return nil, nil, err
+	}
+	var res ApplyResult
+	_ = json.Unmarshal(raw, &res)
+	return &res, raw, nil
+}
+
+// ClearCart empties the active cart in one call.
+func (c *Client) ClearCart() error {
+	return c.DoJSON(http.MethodDelete, c.BaseURL+cartAPI+"/v1/carts/active/items", nil, nil)
+}
+
+// Change is one desired cart mutation: an additive bump (Add=true) or an
+// absolute quantity (Add=false; 0 removes the line).
+type Change struct {
+	ProductID string // UUID
+	Quantity  float64
+	Add       bool
+}
+
+// PlanDeltas folds desired changes against the current lines into the relative
+// deltas apply-quantity wants, plus the resulting absolute quantities. Several
+// changes to one product compose in order; zero deltas are dropped.
+func PlanDeltas(current []CartItem, changes []Change) (deltas []QuantityDelta, final map[string]float64) {
+	final = map[string]float64{}
+	for _, it := range current {
+		final[it.ProductID] = it.Quantity
+	}
+	before := make(map[string]float64, len(final))
+	for k, v := range final {
+		before[k] = v
+	}
+	var order []string
+	seen := map[string]bool{}
+	for _, ch := range changes {
+		q := ch.Quantity
+		if ch.Add {
+			q += final[ch.ProductID]
+		}
+		if q < 0 {
+			q = 0
+		}
+		final[ch.ProductID] = q
+		if !seen[ch.ProductID] {
+			seen[ch.ProductID] = true
+			order = append(order, ch.ProductID)
+		}
+	}
+	for _, id := range order {
+		if d := final[id] - before[id]; d != 0 {
+			deltas = append(deltas, QuantityDelta{ProductID: id, Quantity: d})
+		}
+	}
+	for id, q := range final {
+		if q <= 0 {
+			delete(final, id)
+		}
+	}
+	return deltas, final
+}
+
+// Invert returns the deltas that undo ds (used to roll back a write that landed
+// over budget).
+func Invert(ds []QuantityDelta) []QuantityDelta {
+	out := make([]QuantityDelta, len(ds))
+	for i, d := range ds {
+		out[i] = QuantityDelta{ProductID: d.ProductID, Quantity: -d.Quantity}
 	}
 	return out
 }

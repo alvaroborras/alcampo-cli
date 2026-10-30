@@ -1,4 +1,4 @@
-module github.com/ivorjpc/mercadona
+module github.com/alvaroborras/alcampo-cli
 
 go 1.26
 

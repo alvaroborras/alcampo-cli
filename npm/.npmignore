@@ -1,7 +1,7 @@
 # The `files` whitelist in package.json governs what ships; this is belt-and-braces.
 # Never publish the downloaded binary or archives — they're fetched per-platform on install.
-bin/mercadona
-bin/mercadona.exe
+bin/alcampo
+bin/alcampo.exe
 *.tar.gz
 *.zip
 node_modules/

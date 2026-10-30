@@ -12,11 +12,10 @@ import (
 )
 
 // total computes a deterministic basket total from '<id> [qty]' lines: the CLI
-// fetches each product's current price and sums unit_price×qty in integer cents,
-// so the figure is exact and reproducible — not hand-added by a caller. This is
-// the pre-cart estimate; the authoritative total still comes from the cart/checkout
-// API. Quantities may be fractional (weight/bulk items). No login needed (prices
-// are public); ids are per-warehouse, so it prices in the configured/--wh warehouse.
+// fetches each product's current price and sums price×qty in integer cents, so
+// the figure is exact and reproducible — not hand-added by a caller. This is the
+// pre-cart estimate (list prices; multi-buy promos are applied only by the cart).
+// Quantities may be fractional. No login needed: prices are public.
 func cmdTotal(args []string) error {
 	fs := flag.NewFlagSet("total", flag.ExitOnError)
 	cf := addCommon(fs)
@@ -31,6 +30,11 @@ func cmdTotal(args []string) error {
 		return fmt.Errorf("no basket lines (use -f file, stdin, or '<id> [<id>...]' args)")
 	}
 	cl := newClient(cf)
+	ids := make([]string, len(lines))
+	for i, bl := range lines {
+		ids[i] = bl.id
+	}
+	products, errs := cl.Lookup(ids, lookupConcurrency())
 
 	type lineResult struct {
 		ID        string  `json:"id"`
@@ -38,29 +42,30 @@ func cmdTotal(args []string) error {
 		Qty       float64 `json:"qty"`
 		UnitPrice string  `json:"unit_price,omitempty"`
 		Subtotal  string  `json:"subtotal,omitempty"`
+		Promo     string  `json:"promo,omitempty"`
 		Error     string  `json:"error,omitempty"`
 	}
 	results := make([]lineResult, 0, len(lines))
 	var totalCents int64
 	failed := 0
 	for _, bl := range lines {
-		pv, _, perr := cl.Product(bl.id)
-		if perr != nil {
-			results = append(results, lineResult{ID: bl.id, Qty: bl.qty, Error: perr.Error()})
+		if e := errs[bl.id]; e != nil {
+			results = append(results, lineResult{ID: bl.id, Qty: bl.qty, Error: e.Error()})
 			failed++
 			continue
 		}
-		cents, cerr := priceCents(pv.Price.UnitPrice)
+		p := products[bl.id]
+		cents, cerr := priceCents(p.Price.Amount)
 		if cerr != nil {
-			results = append(results, lineResult{ID: bl.id, Name: pv.DisplayName, Qty: bl.qty, UnitPrice: pv.Price.UnitPrice, Error: cerr.Error()})
+			results = append(results, lineResult{ID: bl.id, Name: p.Name, Qty: bl.qty, UnitPrice: p.Price.Amount, Error: cerr.Error()})
 			failed++
 			continue
 		}
 		sub := int64(math.Round(float64(cents) * bl.qty))
 		totalCents += sub
 		results = append(results, lineResult{
-			ID: bl.id, Name: pv.DisplayName, Qty: bl.qty,
-			UnitPrice: pv.Price.UnitPrice, Subtotal: centsStr(sub),
+			ID: bl.id, Name: p.Name, Qty: bl.qty,
+			UnitPrice: p.Price.Amount, Subtotal: centsStr(sub), Promo: p.Promo(),
 		})
 	}
 
@@ -79,12 +84,16 @@ func cmdTotal(args []string) error {
 				fmt.Printf("  [%s] %s  ERROR: %s\n", r.ID, orDefault(r.Name, "?"), r.Error)
 				continue
 			}
-			fmt.Printf("  [%s] %s — %s × %s€ = %s€\n", r.ID, r.Name, fmtQty(r.Qty), r.UnitPrice, r.Subtotal)
+			promo := ""
+			if r.Promo != "" {
+				promo = "  🏷 " + r.Promo
+			}
+			fmt.Printf("  [%s] %s — %s × %s€ = %s€%s\n", r.ID, r.Name, fmtQty(r.Qty), r.UnitPrice, r.Subtotal, promo)
 		}
 		fmt.Printf("  total: %s€  (%d líneas)\n", centsStr(totalCents), len(lines))
 	}
 	if failed > 0 {
-		return fmt.Errorf("%d of %d lines could not be priced (excluded from the total) — check the ids exist in the %s warehouse", failed, len(lines), cl.Warehouse)
+		return fmt.Errorf("%d of %d lines could not be priced (excluded from the total) — check the ids with `alcampo product <id>`", failed, len(lines))
 	}
 	return nil
 }
@@ -136,8 +145,8 @@ func collectBasket(file string, posArgs []string) ([]basketLine, error) {
 }
 
 // stripComment drops a '#' comment — whole-line or trailing — and trims, so basket
-// and set-many files can annotate ids with the product name ("5044 1  # Arroz").
-// Product ids are numeric, so '#' is never part of one.
+// and set-many files can annotate ids with the product name ("54180 1  # Leche").
+// Product ids are numeric or UUIDs, so '#' is never part of one.
 func stripComment(s string) string {
 	if i := strings.IndexByte(s, '#'); i >= 0 {
 		s = s[:i]

@@ -1,57 +1,33 @@
 package client
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	neturl "net/url"
 	"strings"
-
-	"github.com/ivorjpc/mercadona/internal/config"
 )
 
-// HARSession is the Mercadona auth material extracted from a browser HAR export
-// (DevTools → Network → "Export HAR…"). Both login methods are recognised:
-//   - email/password  → POST /api/auth/tokens/         {access_token, refresh_token, customer_id}
-//   - Google sign-in  → POST /api/auth/social/google/  {access_token, refresh_token, customer_uuid}
-//
-// Only auth *response* bodies and request Bearer/Cookie *headers* are read; the
-// request bodies — which hold the password — are deliberately never touched.
+// HARSession is the Alcampo session extracted from a browser HAR export
+// (DevTools → Network → "Export HAR (with sensitive data)…"). The session is
+// just cookies — global_sid (visitor + cart + login), aws-waf-token (the WAF
+// clearance) and friends — so only request Cookie headers and response
+// Set-Cookie headers are read; request bodies (which may hold a password) are
+// never touched.
 type HARSession struct {
-	AccessToken  string
-	RefreshToken string
-	Cookie       string
-	CustomerID   string
-	LoginKind    string // "password", "google/social", or "headers"
-	// Warehouse/Lang are the values the browser session was actually using,
-	// read from the ?wh=/?lang= query params on captured /api/ requests. They
-	// reflect the warehouse Mercadona assigned to the user's delivery address,
-	// so importing the HAR can pin the CLI to the right per-warehouse catalog.
-	Warehouse string
-	Lang      string
+	Cookies map[string]string
 }
 
-// ParseHAR scans a HAR for the most recent Mercadona session: the access +
-// refresh tokens from a /api/auth/ response, plus the freshest Bearer token and
-// Cookie header seen on authenticated /api/ requests (a fallback when the login
-// response itself wasn't captured, and the source of the Akamai cookie).
+// ParseHAR folds, in capture order, every cookie the browser sent to or received
+// from the shop host, so the result is the browser's final cookie state.
 func ParseHAR(data []byte) (HARSession, error) {
 	var har struct {
 		Log struct {
 			Entries []struct {
 				Request struct {
-					URL     string `json:"url"`
-					Headers []struct {
-						Name  string `json:"name"`
-						Value string `json:"value"`
-					} `json:"headers"`
+					URL     string      `json:"url"`
+					Headers []harHeader `json:"headers"`
 				} `json:"request"`
 				Response struct {
-					Status  int `json:"status"`
-					Content struct {
-						Text     string `json:"text"`
-						Encoding string `json:"encoding"`
-					} `json:"content"`
+					Headers []harHeader `json:"headers"`
 				} `json:"response"`
 			} `json:"entries"`
 		} `json:"log"`
@@ -60,97 +36,68 @@ func ParseHAR(data []byte) (HARSession, error) {
 		return HARSession{}, fmt.Errorf("parse HAR JSON: %w", err)
 	}
 
-	var s HARSession
+	s := HARSession{Cookies: map[string]string{}}
 	for _, e := range har.Log.Entries {
-		url := e.Request.URL
-
-		// Auth responses carry the durable refresh token + an access token.
-		if e.Response.Status == 200 && strings.Contains(url, "/api/auth/") {
-			var r struct {
-				AccessToken  string  `json:"access_token"`
-				RefreshToken string  `json:"refresh_token"`
-				CustomerID   flexStr `json:"customer_id"`
-				CustomerUUID flexStr `json:"customer_uuid"`
-			}
-			if json.Unmarshal(harBody(e.Response.Content.Text, e.Response.Content.Encoding), &r) == nil {
-				if r.AccessToken != "" {
-					s.AccessToken = r.AccessToken
-				}
-				if r.RefreshToken != "" {
-					s.RefreshToken = r.RefreshToken
-				}
-				if id := r.CustomerID.String(); id != "" {
-					s.CustomerID = id
-				}
-				if id := r.CustomerUUID.String(); id != "" {
-					s.CustomerID = id
-				}
-				if r.AccessToken != "" || r.RefreshToken != "" {
-					if strings.Contains(url, "/social/") {
-						s.LoginKind = "google/social"
-					} else {
-						s.LoginKind = "password"
-					}
+		if !strings.Contains(e.Request.URL, "compraonline.alcampo.es") {
+			continue
+		}
+		for _, h := range e.Request.Headers {
+			if strings.EqualFold(h.Name, "cookie") {
+				for k, v := range ParseCookieHeader(h.Value) {
+					s.Cookies[k] = v
 				}
 			}
 		}
-
-		// Authenticated API requests carry the freshest Bearer token + Akamai
-		// cookie, and the wh/lang the session was browsing (last one wins).
-		if strings.Contains(url, "mercadona.es/api/") {
-			if u, perr := neturl.Parse(url); perr == nil {
-				if w := u.Query().Get("wh"); w != "" {
-					s.Warehouse = w
-				}
-				if l := u.Query().Get("lang"); l != "" {
-					s.Lang = l
-				}
+		for _, h := range e.Response.Headers {
+			if !strings.EqualFold(h.Name, "set-cookie") {
+				continue
 			}
-			for _, h := range e.Request.Headers {
-				switch strings.ToLower(h.Name) {
-				case "authorization":
-					if v := strings.TrimSpace(h.Value); len(v) > 7 && strings.EqualFold(v[:7], "bearer ") {
-						s.AccessToken = strings.TrimSpace(v[7:])
-						if s.LoginKind == "" {
-							s.LoginKind = "headers"
-						}
-					}
-				case "cookie":
-					if h.Value != "" {
-						s.Cookie = h.Value
-					}
+			// HAR may fold several Set-Cookie values into one, newline-separated.
+			for _, line := range strings.Split(h.Value, "\n") {
+				first, _, _ := strings.Cut(line, ";")
+				name, val, ok := strings.Cut(strings.TrimSpace(first), "=")
+				if !ok || name == "" {
+					continue
+				}
+				if val == "" {
+					delete(s.Cookies, name)
+				} else {
+					s.Cookies[name] = val
 				}
 			}
 		}
 	}
-
-	if s.CustomerID == "" && s.AccessToken != "" {
-		s.CustomerID = customerFromJWT(s.AccessToken)
-	}
-	if s.AccessToken == "" && s.RefreshToken == "" && s.Cookie == "" {
-		return s, fmt.Errorf("no Mercadona auth material found in HAR " +
-			"(no /api/auth/ response, Bearer header, or cookie) — export the HAR while logged in")
+	if s.Cookies[sessionCookie] == "" {
+		return s, fmt.Errorf("no %s session cookie for compraonline.alcampo.es in the HAR — "+
+			"export it from a tab where you're on the shop, with \"Export HAR (with sensitive data)\" "+
+			"(the default sanitized export strips cookies)", sessionCookie)
 	}
 	return s, nil
 }
 
-// SaveHARSession caches the full session (access + refresh + cookie + customer)
-// to the session file so it's usable immediately and can self-refresh.
-func SaveHARSession(s HARSession) error {
-	return config.Save(tokenCacheFile, Token{
-		AccessToken:  s.AccessToken,
-		RefreshToken: s.RefreshToken,
-		Cookie:       s.Cookie,
-		CustomerID:   flexStr(s.CustomerID),
-	})
+type harHeader struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
-// harBody returns a HAR response body, decoding base64 when the HAR marked it so.
-func harBody(text, encoding string) []byte {
-	if encoding == "base64" {
-		if b, err := base64.StdEncoding.DecodeString(text); err == nil {
-			return b
-		}
+// UseCookies replaces the client's session with the given cookies.
+func (c *Client) UseCookies(cookies map[string]string) {
+	c.mu.Lock()
+	c.cookies = make(map[string]string, len(cookies))
+	for k, v := range cookies {
+		c.cookies[k] = v
 	}
-	return []byte(text)
+	c.csrf, c.dirty = "", true
+	c.mu.Unlock()
+}
+
+// CookieNames lists the session's cookie names (never values) for reporting.
+func (c *Client) CookieNames() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	names := make([]string, 0, len(c.cookies))
+	for n := range c.cookies {
+		names = append(names, n)
+	}
+	return names
 }

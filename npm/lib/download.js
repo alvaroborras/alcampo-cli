@@ -1,6 +1,6 @@
 'use strict';
 
-// Resolves and downloads the prebuilt mercadona binary that matches this package
+// Resolves and downloads the prebuilt alcampo binary that matches this package
 // version + the host platform, from the GitHub Release. Used by bin/run.js, which
 // fetches the binary lazily on first run and caches it in bin/ (no install-time
 // scripts, so it works cleanly under npm's/pnpm's default --ignore-scripts).
@@ -10,7 +10,7 @@ const path = require('path');
 const https = require('https');
 const { execFileSync } = require('child_process');
 
-const REPO = 'ivorpad/mercadona-cli';
+const REPO = 'alvaroborras/alcampo-cli';
 const pkg = require('../package.json');
 const BIN_DIR = path.join(__dirname, '..', 'bin');
 
@@ -28,7 +28,7 @@ function getTarget() {
     platform,
     arch,
     ext: platform === 'windows' ? 'zip' : 'tar.gz',
-    binname: platform === 'windows' ? 'mercadona.exe' : 'mercadona',
+    binname: platform === 'windows' ? 'alcampo.exe' : 'alcampo',
   };
 }
 
@@ -41,7 +41,7 @@ function binaryPath() {
 function download(url, dest, redirects = 0) {
   return new Promise((resolve, reject) => {
     if (redirects > 10) return reject(new Error('too many redirects'));
-    const req = https.get(url, { headers: { 'User-Agent': '@ivorpad/mercadona installer' } }, (res) => {
+    const req = https.get(url, { headers: { 'User-Agent': '@alvaroborras/alcampo installer' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
         return resolve(download(res.headers.location, dest, redirects + 1));
@@ -71,12 +71,12 @@ async function ensureBinary() {
 
   const version = pkg.version;
   const tag = `v${version}`;
-  const asset = `mercadona_${version}_${target.platform}_${target.arch}.${target.ext}`;
+  const asset = `alcampo_${version}_${target.platform}_${target.arch}.${target.ext}`;
   const url = `https://github.com/${REPO}/releases/download/${tag}/${asset}`;
 
   fs.mkdirSync(BIN_DIR, { recursive: true });
   const archive = path.join(BIN_DIR, asset);
-  process.stderr.write(`mercadona: downloading ${asset}…\n`);
+  process.stderr.write(`alcampo: downloading ${asset}…\n`);
   await download(url, archive);
 
   // System `tar` handles .tar.gz everywhere and .zip on Windows 10+ (bsdtar).

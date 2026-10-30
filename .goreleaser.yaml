@@ -4,16 +4,16 @@
 # Release (CI):  push a tag `vX.Y.Z` → .github/workflows/release.yml runs this.
 version: 2
 
-project_name: mercadona
+project_name: alcampo
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: mercadona
-    main: ./cmd/mercadona
-    binary: mercadona
+  - id: alcampo
+    main: ./cmd/alcampo
+    binary: alcampo
     env:
       - CGO_ENABLED=0 # pure-Go deps (utls/toml) → static, trivially cross-compiled
     goos: [linux, darwin, windows]
@@ -34,7 +34,7 @@ archives:
   - id: default
     # Asset name the installer (install.sh) and npm package (npm/lib/download.js)
     # both reconstruct — keep these three in sync if you change it.
-    #   mercadona_<version>_<os>_<arch>.tar.gz   (zip on windows)
+    #   alcampo_<version>_<os>_<arch>.tar.gz   (zip on windows)
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     format_overrides:
@@ -59,25 +59,25 @@ changelog:
 
 release:
   github:
-    owner: ivorpad
-    name: mercadona-cli
+    owner: alvaroborras
+    name: alcampo-cli
   draft: false
   prerelease: auto
 
-# Homebrew — deferred. To enable `brew install ivorpad/tap/mercadona`:
-#   1. create the repo  github.com/ivorpad/homebrew-tap
+# Homebrew — deferred. To enable `brew install alvaroborras/tap/alcampo`:
+#   1. create the repo  github.com/alvaroborras/homebrew-tap
 #   2. add a repo-scoped PAT as the Actions secret HOMEBREW_TAP_GITHUB_TOKEN
 #   3. uncomment below, and pass that env into the goreleaser step in release.yml
 # brews:
-#   - name: mercadona
+#   - name: alcampo
 #     repository:
-#       owner: ivorpad
+#       owner: alvaroborras
 #       name: homebrew-tap
 #       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-#     homepage: "https://github.com/ivorpad/mercadona-cli"
-#     description: "Unofficial, agent-friendly CLI for tienda.mercadona.es"
+#     homepage: "https://github.com/alvaroborras/alcampo-cli"
+#     description: "Unofficial, agent-friendly CLI for compraonline.alcampo.es"
 #     license: "MIT"
 #     install: |
-#       bin.install "mercadona"
+#       bin.install "alcampo"
 #     test: |
-#       system "#{bin}/mercadona", "version"
+#       system "#{bin}/alcampo", "version"

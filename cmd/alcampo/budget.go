@@ -6,22 +6,22 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/ivorjpc/mercadona/internal/client"
-	"github.com/ivorjpc/mercadona/internal/config"
+	"github.com/alvaroborras/alcampo-cli/internal/client"
+	"github.com/alvaroborras/alcampo-cli/internal/config"
 )
 
 // ---- spending guard ----
 
 // resolveMax returns the spending cap in € from (in order) the --max flag, the
-// MERCADONA_MAX_EUR env var, or [limits].max_eur in config.toml. 0 = no limit.
+// ALCAMPO_MAX_EUR env var, or [limits].max_eur in config.toml. 0 = no limit.
 func resolveMax(flagMax float64) (float64, error) {
 	if flagMax > 0 {
 		return flagMax, nil
 	}
-	if s := os.Getenv("MERCADONA_MAX_EUR"); s != "" {
+	if s := os.Getenv("ALCAMPO_MAX_EUR"); s != "" {
 		v, err := strconv.ParseFloat(s, 64)
 		if err != nil {
-			return 0, fmt.Errorf("invalid MERCADONA_MAX_EUR %q: %v", s, err)
+			return 0, fmt.Errorf("invalid ALCAMPO_MAX_EUR %q: %v", s, err)
 		}
 		return v, nil
 	}
@@ -38,12 +38,12 @@ func checkBudget(total float64, haveTotal bool, maxEUR float64, action string, f
 	}
 	if !haveTotal {
 		if failClosed {
-			return fmt.Errorf("refusing to %s: couldn't read the total to enforce the %.2f€ limit (set MERCADONA_MAX_EUR=0 to disable the guard)", action, maxEUR)
+			return fmt.Errorf("refusing to %s: couldn't read the total to enforce the %.2f€ limit (set ALCAMPO_MAX_EUR=0 to disable the guard)", action, maxEUR)
 		}
 		return nil
 	}
 	if total > maxEUR {
-		return fmt.Errorf("BUDGET EXCEEDED: %s total %.2f€ is over the %.2f€ limit — refusing (raise with --max, MERCADONA_MAX_EUR, or [limits].max_eur)", action, total, maxEUR)
+		return fmt.Errorf("BUDGET EXCEEDED: %s total %.2f€ is over the %.2f€ limit — refusing (raise with --max, ALCAMPO_MAX_EUR, or [limits].max_eur)", action, total, maxEUR)
 	}
 	return nil
 }

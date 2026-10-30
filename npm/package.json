@@ -1,9 +1,9 @@
 {
-  "name": "@ivorpad/mercadona",
+  "name": "@alvaroborras/alcampo",
   "version": "0.0.0",
-  "description": "Unofficial, agent-friendly CLI for tienda.mercadona.es — search the catalog, read prices, build a cart, and check out. Ships a prebuilt Go binary.",
+  "description": "Unofficial, agent-friendly CLI for compraonline.alcampo.es — search the catalog, read prices, build a cart, and prepare checkout. Ships a prebuilt Go binary.",
   "bin": {
-    "mercadona": "bin/run.js"
+    "alcampo": "bin/run.js"
   },
   "files": [
     "bin/run.js",
@@ -14,19 +14,18 @@
     "node": ">=16"
   },
   "keywords": [
-    "mercadona",
+    "alcampo",
     "cli",
     "grocery",
     "shopping",
-    "agent",
-    "algolia"
+    "agent"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ivorpad/mercadona-cli.git"
+    "url": "git+https://github.com/alvaroborras/alcampo-cli.git"
   },
-  "homepage": "https://github.com/ivorpad/mercadona-cli#readme",
+  "homepage": "https://github.com/alvaroborras/alcampo-cli#readme",
   "bugs": {
-    "url": "https://github.com/ivorpad/mercadona-cli/issues"
+    "url": "https://github.com/alvaroborras/alcampo-cli/issues"
   }
 }

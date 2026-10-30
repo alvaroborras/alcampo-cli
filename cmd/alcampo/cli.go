@@ -4,43 +4,46 @@ import (
 	"encoding/json"
 	"flag"
 	"os"
+	"strconv"
 	"strings"
 
-	"github.com/ivorjpc/mercadona/internal/client"
-	"github.com/ivorjpc/mercadona/internal/config"
+	"github.com/alvaroborras/alcampo-cli/internal/client"
 )
 
 // common flags shared by every subcommand.
 type common struct {
-	wh, lang string
-	jsonOut  bool
+	jsonOut bool
 }
 
 func addCommon(fs *flag.FlagSet) *common {
 	c := &common{}
-	// Empty defaults so newClient can tell "user passed --wh" from "unset" and
-	// fall back to config [defaults] before the built-in mad1/es.
-	fs.StringVar(&c.wh, "wh", "", "warehouse code, e.g. mad1 (default: config [defaults].warehouse, else mad1)")
-	fs.StringVar(&c.lang, "lang", "", "language: es, en, ca, eu, vai (default: config [defaults].lang, else es)")
 	fs.BoolVar(&c.jsonOut, "json", false, "emit raw JSON to stdout")
 	return c
 }
 
-// newClient builds a client, resolving warehouse/lang by precedence:
-// explicit --wh/--lang flag > config.toml [defaults] > the built-in mad1/es from
-// client.New(). Product ids and prices are per-warehouse, so honouring the
-// config default (set once via `set-postal`) is what keeps every command on the
-// catalog that serves the user's address.
-func newClient(c *common) *client.Client {
-	cl := client.New() // built-in defaults: warehouse mad1, lang es
-	cfg, _ := config.LoadConfig()
-	if v := firstNonEmpty(c.wh, cfg.Defaults.Warehouse); v != "" {
-		cl.Warehouse = v
-	}
-	if v := firstNonEmpty(c.lang, cfg.Defaults.Lang); v != "" {
-		cl.Lang = v
+// newClient builds a client on the cached session (~/.alcampo/session.json), so
+// the anonymous cart and any imported login carry over between runs. Cookie
+// rotations are written back as they happen. ALCAMPO_COOKIE, when set, replaces
+// the cached session for this run (and is then cached like any other).
+func newClient(_ *common) *client.Client {
+	cl := client.New()
+	cl.LoadSession()
+	if ck := os.Getenv("ALCAMPO_COOKIE"); ck != "" {
+		cl.SetCookieHeader(ck)
 	}
 	return cl
+}
+
+// lookupConcurrency bounds concurrent product GETs (pricing a basket, resolving
+// ids, batch searches). Kept deliberately low: the shop's AWS WAF challenges
+// bursty clients. Override with ALCAMPO_CONCURRENCY (1–16).
+func lookupConcurrency() int {
+	if s := os.Getenv("ALCAMPO_CONCURRENCY"); s != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n >= 1 && n <= 16 {
+			return n
+		}
+	}
+	return 2
 }
 
 // reorderArgs lets flags appear anywhere among positional args. The stdlib flag

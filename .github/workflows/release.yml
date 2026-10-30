@@ -50,7 +50,7 @@ jobs:
         working-directory: npm
         run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
       # No NODE_AUTH_TOKEN: auth is the workflow's OIDC identity. Requires a
-      # Trusted Publisher configured for @ivorpad/mercadona on npmjs.com (one-time).
+      # Trusted Publisher configured for @alvaroborras/alcampo on npmjs.com (one-time).
       - name: Publish to npm (OIDC Trusted Publishing + provenance)
         working-directory: npm
         run: npm publish --provenance --access public

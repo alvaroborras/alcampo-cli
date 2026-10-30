@@ -1,23 +1,23 @@
-# @ivorpad/mercadona
+# @alvaroborras/alcampo
 
-Unofficial, agent-friendly CLI for `tienda.mercadona.es`. This npm package is a thin
+Unofficial, agent-friendly CLI for `compraonline.alcampo.es`. This npm package is a thin
 wrapper that downloads the prebuilt Go binary for your platform from
-[GitHub Releases](https://github.com/ivorpad/mercadona-cli/releases) on install.
+[GitHub Releases](https://github.com/alvaroborras/alcampo-cli/releases) on install.
 
 ```bash
 # one-off
-npx @ivorpad/mercadona search queso
+npx @alvaroborras/alcampo search queso
 
-# or install globally → `mercadona` on your PATH
-npm install -g @ivorpad/mercadona
-mercadona help
+# or install globally → `alcampo` on your PATH
+npm install -g @alvaroborras/alcampo
+alcampo help
 ```
 
 Supported platforms: macOS, Linux, and Windows on x64 / arm64. If your platform isn't
 covered, grab a binary from the releases page or build from source.
 
 Full documentation, the authenticated cart/checkout flow, and the bundled Claude skill
-live in the main repo: <https://github.com/ivorpad/mercadona-cli>.
+live in the main repo: <https://github.com/alvaroborras/alcampo-cli>.
 
-> Unofficial. Mercadona has no public API. Bring your own credentials and use a sane
+> Unofficial. Alcampo has no public API. Bring your own credentials and use a sane
 > request rate.

@@ -1,404 +1,217 @@
-# mercadona
+# alcampo
 
-Unofficial, agent-friendly CLI for `tienda.mercadona.es` — search the catalog, read
-prices, build a cart, and check out. Single static Go binary, no runtime
-deps, structured `--json` output for programmatic/agent use.
+Unofficial, agent-friendly CLI for `compraonline.alcampo.es` — search the catalog, read
+prices and promos, build a cart, and prepare delivery checkout. Single static Go binary, no
+runtime deps, structured `--json` output for programmatic/agent use.
 
-> Unofficial. Mercadona has no public API. Bring your own credentials; use at a
-> sane request rate. This talks to the same HTTP endpoints the website does.
-
-![Searching for a product and reading its price with --json](docs/media/demo.gif)
+> Unofficial. Alcampo has no public API. Bring your own account; use at a sane request rate.
+> This talks to the same HTTP endpoints the website does.
+>
+> Forked from [ivorpad/mercadona-cli](https://github.com/ivorpad/mercadona-cli) and ported
+> from Mercadona's API to Alcampo's (which runs on the Ocado Smart Platform).
 
 ## Install
 
-**npm** — downloads the prebuilt binary for your platform on install:
+**npm** — downloads the prebuilt binary for your platform on first run:
 
 ```bash
-npm install -g @ivorpad/mercadona      # puts `mercadona` on your PATH
-npx @ivorpad/mercadona search queso    # …or run without installing
+npm install -g @alvaroborras/alcampo      # puts `alcampo` on your PATH
+npx @alvaroborras/alcampo search queso    # …or run without installing
 ```
 
 **curl** (macOS / Linux):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ivorpad/mercadona-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/alvaroborras/alcampo-cli/main/install.sh | sh
 ```
 
-Override with `MERCADONA_VERSION=v0.1.0` (pin a tag) or `MERCADONA_INSTALL_DIR=/path`
+Override with `ALCAMPO_VERSION=v0.1.0` (pin a tag) or `ALCAMPO_INSTALL_DIR=/path`
 (install location; defaults to `/usr/local/bin`, else `~/.local/bin`).
 
 **Manual** — download a tarball for your OS/arch from the
-[releases page](https://github.com/ivorpad/mercadona-cli/releases), extract, and put
-`mercadona` on your PATH.
+[releases page](https://github.com/alvaroborras/alcampo-cli/releases), extract, and put
+`alcampo` on your PATH.
 
-**From source** (Go 1.26+) — clone, then:
+**From source** (Go 1.26+):
 
 ```bash
-go build -o mercadona ./cmd/mercadona
+go install github.com/alvaroborras/alcampo-cli/cmd/alcampo@latest
+# or, in a clone:
+go build -o alcampo ./cmd/alcampo
 ```
-
-(`go install <module>@latest` isn't wired up yet: the module path is
-`github.com/ivorjpc/mercadona`, which doesn't match the repo URL.)
 
 ## Commands
 
-### Read core (anonymous — no login)
+### Read (anonymous — no login)
 
 ```bash
-mercadona search queso                      # full-text product search
-mercadona search --limit 5 --json mayonesa  # structured output for agents
-mercadona batch -f lista.txt                 # many terms in ONE request (≈100 items / call)
-printf 'queso\ncarne\nmayonesa\n' | mercadona batch -f -
-mercadona product 13406                      # detail, price, nutrition (when available)
-mercadona categories                         # category tree
-mercadona categories --id 112 --json         # one category's products (raw JSON)
+alcampo search leche                         # full-text product search
+alcampo search --limit 5 --json mayonesa     # structured output for agents
+alcampo search gambas --fresh                # drop frozen (Congelados) + canned (Conservas)
+alcampo search atún --category Conservas     # scope to a category (name, OC… code or UUID)
+alcampo batch -f lista.txt                   # top hit for many terms
+printf 'queso\nmayonesa\n' | alcampo batch -f -
+alcampo product 54180                        # detail, price, promos, nutrition
+alcampo total -f cesta.txt                   # exact basket total from '<id> [qty]' lines
+alcampo categories                           # category tree (OC… codes)
+alcampo categories --id "Leche semidesnatada" --limit 10   # one category's products
 ```
 
-Common flags: `--wh mad1` (warehouse), `--lang es`, `--json` — and they can go anywhere after the (sub)command, not just up front.
-Data goes to **stdout**, logs/errors to **stderr**, exit code `1` on error — friendly to scripts and agents.
+Product ids are the shop's numeric ids — the number at the end of a product URL
+(`…/products/<slug>/54180`). The platform's UUIDs (`176cfd5e-…`, in `--json` output) are
+accepted anywhere too. Data goes to **stdout**, logs/errors to **stderr**, exit code `1` on
+error — friendly to scripts and agents. Flags can go anywhere after the (sub)command.
 
-### Location (warehouse) — set it from your postal code
+```console
+$ alcampo search --limit 3 leche
+query="leche"  hits=3+
+  [54180] AUCHAN Leche semidesnatada de vaca 6 x 1l Producto Alcampo. — 5.28€ (0.88€/l) (Leche semidesnatada)
+  [54178] AUCHAN Leche entera de vaca 6 x 1 l Producto Alcampo. — 5.76€ (0.96€/l) (Leche entera)
+  [99193] L.R. Leche entera 6 x 1 l. — 5.70€ (0.95€/l) (Leche entera)
+
+$ alcampo product 54180
+[54180] AUCHAN Leche semidesnatada de vaca 6 x 1l Producto Alcampo.
+  precio: 5.28€  (0.88€/l)
+  marca: PRODUCTO ALCAMPO
+  formato: 6000ml
+  categoría: Leche, Huevos, Lácteos, Yogures y Bebidas vegetales › Leche › Leche semidesnatada
+  uuid: 176cfd5e-afa9-4aa1-8b6f-fe3d757c535e
+  nutrición (por 100g):
+    Valor energético (Kj): 193 Kj
+    Valor energético (Kcal): 46 Kcal
+    Grasas: 1.6 g
+    ...
+```
+
+### Cart — works anonymously
+
+Alcampo's shop (Ocado platform) keys the cart to a **session cookie**, not an account, so the
+cart works without logging in. The CLI caches its session in `~/.alcampo/session.json`, so the
+cart carries over between runs.
 
 ```bash
-mercadona set-postal 28022   # → resolves to warehouse mad1, saves it as the default
+alcampo cart get                             # lines, qty × price, total, savings, restrictions
+alcampo cart add 54180 2 --max 80            # add 2 (refuses if the cart would exceed 80 €)
+alcampo cart set 54180 1                     # absolute quantity (0 removes)
+alcampo cart set-many -f - --max 80 <<'EOF'  # many absolute '<id> <qty>' lines in ONE write
+54180 1   # Leche semidesnatada Auchan
+99211 3   # Leche semidesnatada L.R.
+EOF
+alcampo cart clear                           # empty it
 ```
 
-Product ids **and prices** are per-warehouse, and online checkout needs the cart's warehouse to
-match your delivery address — so pin it to the warehouse that serves your postal code (no login
-needed). Precedence: `--wh` flag > `config.toml [defaults]` > built-in `mad1`. `import-har` also
-auto-detects and saves the warehouse from your session. (Within a city it varies: `28022 → mad1`,
-`28013 → mad3`.)
-
-Example:
-
-```
-$ mercadona batch -f lista.txt
-• queso            → [51110] Queso rallado mozzarella pizza-Roma Hacendado — 1.60€ (8.000€/kg)
-• carne            → [34157] Carne de pimiento choricero Hacendado — 1.55€ (11.072€/kg)
-• mayonesa         → [13406] Mayonesa Hacendado — 1.20€ (2.400€/L)
+```console
+$ alcampo cart get
+carrito: 2 productos, total 20.22€
+  [54180] AUCHAN Leche semidesnatada de vaca 6 x 1l Producto Alcampo. — 1 × 5.28€ = 5.28€
+  [99211] L.R. Leche semidesnatada 6 x 1 l. — 3 × 4.98€ = 14.94€
+  ⚠ falta reservar franja de entrega (`alcampo checkout slots`)
 ```
 
-### Authenticated: `import-har` (preferred) / `import-curl` / `login`, `whoami`, `cart`, `checkout`
+An anonymous CLI cart lives only in the CLI's session, though — your browser won't see it. To
+check out, use your logged-in session (below) *before* filling the cart, so the CLI and the
+browser share one cart.
 
-The API authenticates with a **Bearer token** (a SimpleJWT). The first sign-in must happen in a
-browser (password login needs a Google reCAPTCHA Enterprise token; Google-account users have no
-password at all). After that, the **refresh token renews the session headlessly, forever** —
-`POST /api/auth/tokens/ {refresh_token}` needs no captcha and rotates the token. Verified.
+### Session: log in in the browser, import the cookies
 
-**Two login methods, one outcome.** However you sign in, the response carries the same durable
-`refresh_token`, so the CLI automates identically:
-
-| Method | Endpoint | Request body | Response |
-|---|---|---|---|
-| Email + password | `POST /api/auth/tokens/` | `{username, password, recaptcha_token}` | `{access_token, customer_id, refresh_token}` |
-| Google sign-in | `POST /api/auth/social/google/` | `{id_token, postal_code}` | `{access_token, customer_uuid, refresh_token}` |
-
-**✅ Preferred login method — `import-har`.** One browser login (email *or* Google), then
-headless forever. Export a HAR after signing in and let the CLI pull the refresh token out for you:
+The shop authenticates with cookies (`global_sid` + friends), and its login form sits behind a
+captcha, so the CLI never logs in itself. You log in once in your browser, and the CLI imports
+the session:
 
 ```bash
-# DevTools → Network → ⤓ "Export HAR…"  (after you've logged in, by either method), then:
-mercadona import-har --file tienda.mercadona.es.har
-mercadona whoami     # confirms it's authenticated
+# 1. log in at https://www.compraonline.alcampo.es
+# 2. DevTools → Network → right-click any request to the shop → Copy → Copy as cURL (bash)
+alcampo import-curl --file session.txt       # or: pbpaste | alcampo import-curl
+alcampo whoami                               # → ok — logged in as Nombre Apellido <you@…>
 ```
 
-`import-har` seeds `refresh_token` into `~/.mercadona/config.toml` (0600) and caches the current
-access token + cookie. From then on every `401 token_not_valid` triggers an automatic refresh +
-retry — no browser, no captcha, unattended. (It reads only auth *responses* and Bearer/Cookie
-*headers*; the password in the request body is never touched.)
+Alternatives: `alcampo import-har --file shop.har` (DevTools → **Export HAR (with sensitive
+data)…** — the default sanitized export strips cookies), or `alcampo set-cookie --stdin` with a
+raw `name=value; …` Cookie header. `ALCAMPO_COOKIE` overrides the session for a single run.
+`alcampo logout` forgets the cached session.
 
-Prefer to do it by hand? Write the token yourself — `mercadona set-refresh <token>` (or edit
-`~/.mercadona/config.toml`):
+Imports report cookie **names** only; values are never printed. Cookie rotations are written
+back to `session.json` (0600) after every response.
 
-```toml
-[auth]
-refresh_token = "<your refresh token>"   # the durable, headless-renewable credential
-[defaults]
-warehouse = "mad1"        # or: `mercadona set-postal 28022` resolves + writes this for you
-postal_code = "28022"
-```
-
-`MERCADONA_TOKEN`/`MERCADONA_COOKIE`/`MERCADONA_CUSTOMER` (and `MERCADONA_USER`/`MERCADONA_PASS`) env vars also work for one-off runs.
-
-**Quick one-off (no refresh):** `mercadona import-curl --file s.txt` from a DevTools "Copy as
-cURL" of any `…/api/customers/…` request extracts the Bearer token + cookie + customer id. It has
-no refresh token, so it can't auto-renew — re-import when the access token expires.
-
-> `mercadona login --user … --password …` exists but will fail without a `recaptcha_token`
-> (browser-only), and does nothing for Google accounts; prefer the HAR/refresh-token flow above.
-
-The customer id is read automatically from the token's `customer_uuid` claim, so
-you never pass it (the literal `me` alias is rejected with 403). Token/cookie/
-customer can also come from `MERCADONA_TOKEN` / `MERCADONA_COOKIE` /
-`MERCADONA_CUSTOMER`. Secrets are read from env/files, never taken as flags.
-
-#### Test the checkout flow with your session
+### Checkout (logged-in session)
 
 ```bash
-mercadona import-har --file tienda.mercadona.es.har   # auth (preferred; or import-curl)
-mercadona whoami                           # → "ok — customer id=…"  (confirms auth)
-mercadona cart get --json                  # inspect current cart (names, qty × unit_price, total)
-mercadona cart add 51110 2 --max 80        # add 2× a product (capped at 80 €)
-printf '51110 2\n13406 1\n' | mercadona cart set-many -f - --max 80   # many '<id> <qty>' in ONE write (0 removes)
-mercadona cart clear                       # empty the cart in one write
-mercadona checkout create --json           # open a checkout → id + default address
-mercadona checkout addresses               # list saved delivery addresses
-mercadona checkout slots --address <id>    # delivery slots (they hang off the address, not the checkout)
-mercadona checkout get --checkout <id>     # show a checkout: total, address, slot
-mercadona checkout set-delivery --checkout <id> --address <id> --slot <id>
-mercadona checkout submit --checkout <id> --max 80 --yes   # IRREVERSIBLE — places the order
+alcampo checkout addresses                   # saved delivery addresses
+alcampo checkout slots                       # slots for the cart's address (or --address <id>)
+alcampo checkout reserve --slot <slotId>     # hold a delivery slot
+alcampo checkout summary --max 90            # payable total incl. delivery (raw JSON)
+alcampo checkout finish --max 90             # budget gate, then prints the checkout URL
 ```
 
-`cart add` adds to the existing quantity; `cart set` sets the absolute quantity (`0` removes). For a
-whole basket, **`cart set-many -f -`** applies many `<id> <qty>` lines in a *single* write — and prices
-it first, so `--max` refuses *before* writing — while **`cart clear`** empties it. All accept `--max`.
+Payment goes through the shop's card processor with 3-D Secure, which needs the browser, so the
+CLI's last step is `checkout finish`: it checks the payable total against your cap (failing
+**closed** if it can't read it) and prints the checkout URL. You review and pay there, with the
+same account and cart. **The CLI never places or pays for an order.**
 
-The access token (a SimpleJWT) lasts ~6 weeks; when `whoami` starts returning
-`401 token_not_valid`, re-import a fresh `Copy as cURL` (or use `login`).
+> Status: the checkout calls (`addresses`, `slots`, `reserve`, `summary`) use the endpoints and
+> request bodies the web app sends, but they haven't yet been run against a logged-in account.
+> Everything else in this README has been verified live.
 
 ### Spending guard (agent safety)
 
-When an agent drives the CLI, cap how much it can ever spend. Any cart/checkout over the cap is
-refused with a non-zero exit and an `error:` line — so the agent stops instead of running up a huge
-order. Pass it as a flag (which can go anywhere on the line):
+When an agent drives the CLI, cap how much it can ever spend. Any cart write or checkout step
+over the cap is refused with a non-zero exit and an `error:` line:
 
-```bash
-mercadona cart add 10379 99 --max 50                       # → error: BUDGET EXCEEDED … refusing (exit 1)
-mercadona checkout submit --checkout <id> --max 80 --yes   # submits only if total ≤ 80 €
+```console
+$ alcampo cart add 53004 1 --max 15
+error: BUDGET EXCEEDED (estimated ≈33.06€ > 15.00€ limit): not writing add — raise the cap with --max, ALCAMPO_MAX_EUR, or [limits].max_eur
 ```
 
-Or set it once so every command is capped — `MERCADONA_MAX_EUR=100` (env), or in config:
+Cart writes price the resulting basket *before* writing, and if the server's total still lands
+over the cap (rounding, promos), the change is rolled back. Set the cap once with
+`ALCAMPO_MAX_EUR=100`, or in config:
 
 ```toml
-# ~/.mercadona/config.toml
+# ~/.alcampo/config.toml
 [limits]
 max_eur = 100        # refuse any cart/checkout whose total exceeds 100 €
 ```
 
-Precedence is **flag > env > config**; `0`/unset = no limit. Enforced on `cart add/set/set-many`,
-`checkout create`, `checkout set-delivery`, and — critically — `checkout submit`, which **fails
-closed**: with a cap set, if it can't read the order total it refuses rather than spend blind.
-(With no cap, `submit` prints a warning.)
-
-## Recipes — real examples
-
-> The interesting part isn't "an AI does your shopping." It's that one person can now do things that
-> used to need a developer or an analyst: track your *own* inflation, rank a category by €/kg, catch
-> genuine price drops, build an allergen-safe basket. Every output below is **live CLI** — and since
-> reads need no login, most are copy-paste.
-
-### Price a shopping list written in plain words
-
-You think in names; the cart API thinks in ids. `batch` bridges them in **one request** — the top
-hit per term, with its price:
-
-```console
-$ printf 'arroz redondo hacendado\ngambón grande congelado\nmejillón mediterráneo\ntomate triturado hacendado\naceite oliva virgen extra hacendado\n' | mercadona batch -f -
-• arroz redondo hacendado  → [5044] Arroz redondo Hacendado — 1.20€ (1.200€/kg)
-• gambón grande congelado  → [60393] Gambón grande congelado — 6.00€ (12.000€/kg)
-• mejillón mediterráneo    → [85499] Mejillón mediterráneo — 5.80€ (5.800€/kg)
-• tomate triturado hacendado → [16044] Tomate triturado Hacendado — 0.55€ (1.375€/kg)
-• aceite oliva virgen extra hacendado → [4740] Aceite de oliva virgen extra Hacendado — 4.95€ (4.950€/L)
-```
-
-Put your picks in a basket file — it takes inline `#` comments, so it reads like the list you
-started with, not a wall of ids (`paella.txt`):
-
-```text
-# paella base — 3 personas
-5044  1    # Arroz redondo Hacendado
-60393 1    # Gambón grande congelado
-85499 1    # Mejillón mediterráneo
-16044 1    # Tomate triturado Hacendado
-4740  0.5  # Aceite de oliva virgen extra
-```
-
-Then price it — `total` sums `unit_price × qty` **in integer cents** (exact; fractional quantities
-work for weight items):
-
-```console
-$ mercadona total -f paella.txt
-  [5044] Arroz redondo Hacendado — 1 × 1.20€ = 1.20€
-  [60393] Gambón grande congelado — 1 × 6.00€ = 6.00€
-  [85499] Mejillón mediterráneo — 1 × 5.80€ = 5.80€
-  [16044] Tomate triturado Hacendado — 1 × 0.55€ = 0.55€
-  [4740] Aceite de oliva virgen extra Hacendado — 0.5 × 4.95€ = 2.48€
-  total: 16.03€  (5 líneas)
-```
-
-→ **16.03 €** for the basket; a paella base for 3 ≈ **5.34 €/serving**. (The same `# comment`
-basket feeds `cart set-many` to fill the cart in one write; add `--json` for `{lines, total, count,
-complete}`.)
-
-### Get the *fresh* item, not the frozen/canned one
-
-A bare term often top-ranks the frozen or canned version. `--fresh` drops the Congelados + Conservas
-aisles, so the fresh product surfaces:
-
-```console
-$ mercadona search mejillon --limit 1
-  [18615] Mejillones de Chile en escabeche Hacendado pequeños — 2.65€   (Conservas, caldos y cremas)
-$ mercadona search mejillon --fresh --limit 1
-  [85499] Mejillón mediterráneo — 5.80€   (Marisco y pescado)
-```
-
-### Sort a whole category by price-per-kilo
-
-`reference_price` is the unit-normalised price (€/kg, €/L) on every product. Pull a whole category and
-rank by it to surface the genuine value buys:
-
-```console
-$ mercadona categories --id 118 --json   # 118 = Arroz
-```
-| id | product | price | per kilo |
-|---|---|---|---|
-| `5044` | Arroz redondo Hacendado | 1.20€ | 1.200 €/kg |
-| `5063` | Arroz largo Hacendado | 1.20€ | 1.200 €/kg |
-| `5020` | Arroz vaporizado Hacendado | 1.55€ | 1.550 €/kg |
-| `5042` | Arroz redondo J Sendra Hacendado | 1.60€ | 1.600 €/kg |
-| `5184` | Arroz integral largo Hacendado | 1.65€ | 1.650 €/kg |
-
-### Find products actually on offer (the API flags it)
-
-Each product carries `price_decreased` + `previous_unit_price`, so you can catch genuine drops — not
-marketing. A scan of ~440 staples turned up dozens:
-
-```console
-$ mercadona categories --id 112 --json | jq '.. | objects | select(.price_decreased==true)'
-```
-| id | product | was | now | drop |
-|---|---|---|---|---|
-| `4717` | Aceite de oliva virgen extra Hacendado | 14.55€ | 14.40€ | -1% |
-| `4706` | Aceite de oliva virgen extra Gran Selección | 5.95€ | 5.75€ | -3% |
-| `4718` | Aceite de oliva virgen extra Hacendado | 2.70€ | 2.60€ | -4% |
-| `5063` | Arroz largo Hacendado | 1.25€ | 1.20€ | -4% |
-| `26029` | Garbanzo cocido Hacendado | 0.85€ | 0.80€ | -6% |
-| `6305` | Pajaritas vegetales Hacendado | 1.00€ | 0.90€ | -10% |
-
-### Read nutrition, allergens & ingredients per product (diet-safe baskets)
-
-`product` prints the per-100g nutrition table for the minority of products that
-carry one (some prepared/processed items have it, but most products — staples and
-many prepared items alike — return none):
-
-```console
-$ mercadona product 17559
-[17559] Empanadilla de bacon 11% y queso 32%
-  precio: 1.40€  (12.728 kg)
-  formato: Pieza
-  url: https://tienda.mercadona.es/product/17559/empanadilla-bacon-11-queso-32-pieza
-  nutrición (Por 100 g):
-    energía: 385 kcal / 1598 kJ
-    Grasas: 29 g
-      Saturadas: 15 g
-    Hidratos de carbono: 21 g
-      Azúcares: 2 g
-    Proteínas: 9.2 g
-    Sal: 1.1 g
-```
-
-For agents, `--json` carries the structured table at `product_information.nutritional_information`,
-next to `nutrition_information` (allergens + ingredients), `brand`, `ean`, `origin`, and `details`:
-
-```console
-$ mercadona product 17559 --json | jq '{kcal: .product_information.nutritional_information[0].energy_calories.amount, allergens: .nutrition_information.allergens}'
-{
-  "kcal": "385.0",
-  "allergens": "Contiene huevos y productos a base de huevo. Contiene leche y sus derivados..."
-}
-```
-> The numeric table is filled in for only a minority of products, so don't count on it for any given
-> item — most staples (pasta, eggs, plain cheese) and many prepared items return none. By contrast
-> `nutrition_information` (allergens + ingredients) is there for nearly all.
-
-### Discover regional specialties with `--wh`
-
-Prices are uniform nationwide (see below), but the **catalog isn't** — each warehouse stocks local
-products. Mallorca's sobrasada shelf vs Madrid's:
-
-```console
-$ mercadona search sobrasada --wh mad1 --json | jq .nbHits   # Madrid:   19
-$ mercadona search sobrasada --wh 3842 --json | jq .nbHits   # Baleares: 28
-```
-**10 sobrasada products are in Baleares but not Madrid**, e.g. `[20869] Sobrasada de Mallorca Can Pere
-Joan — 5.25€`, `[53114] Sobrasada cerdo negro de Mallorca — 14.84€`, con miel, picante…
-
-### Verify a claim: are prices identical across regions?
-
-Same product id, priced in five warehouses with `--wh`. To the cent, everywhere — islands included
-(Mercadona's "Siempre Precios Bajos" is literal):
-
-```console
-$ for wh in mad1 bcn1 vlc1 svq1 3842; do mercadona product 5044 --wh $wh --json; done
-```
-| id | product | Madrid | Barcelona | Valencia | Sevilla | Baleares | |
-|---|---|---|---|---|---|---|---|
-| `5044` | Arroz redondo | 1.20€ | 1.20€ | 1.20€ | 1.20€ | 1.20€ | ✓ same |
-| `4740` | AOVE Hacendado | 4.95€ | 4.95€ | 4.95€ | 4.95€ | 4.95€ | ✓ same |
-| `10379` | Leche entera | 5.76€ | 5.76€ | 5.76€ | 5.76€ | 5.76€ | ✓ same |
-| `60393` | Gambón | 6.00€ | 6.00€ | 6.00€ | 6.00€ | 6.00€ | ✓ same |
-| `64000` | Helado bombón | 2.90€ | 2.90€ | 2.90€ | 2.90€ | 2.90€ | ✓ same |
-
-### Compose the rest with an agent
-
-The same primitives back richer, agent-driven flows — the [Claude skill](#claude-skill) drives them,
-always capping spend with `--max` and never submitting without explicit consent:
-
-- **Personal inflation tracker** — cron the `total --json` recipe on your real basket → CSV → chart your own CPI.
-- **Reverse budgeter** — "feed 4 for a week on 50 €": batch-price candidates, optimise `reference_price` under `--max`.
-- **Household cart by chat** — "añade leche" in WhatsApp/Slack → `cart set-many` updates a shared basket through the week.
-- **Pantry-photo restock** — an agent maps a fridge photo to product *names* → `search` → `cart set-many`. (No barcode lookup — but `ean` is exposed, so you can build your own scan map.)
-- **Smart-home / calendar triggers** — Home Assistant "milk low", or "dinner party Saturday for 8" → fills the cart and books a slot.
-- **DIY Subscribe-&-Save** — a weekly cron rebuilds your staples with `cart set-many` and preps checkout; you just approve.
-- **Voice-first shopping** — a complete weekly shop by conversation, no app UI to fight: the clearest case of augmenting, not replacing.
+Precedence is **flag > env > config**; `0`/unset = no limit.
 
 ## Design / reliability
 
-The CLI calls the same web endpoints the Mercadona site calls. There is no scraping of rendered pages.
+The CLI calls the same JSON endpoints the Alcampo site calls (`/api/webproductpagews/…` for the
+catalog, `/api/cart/…`, `/api/ecomslots/…`, `/api/ecomdeliverydestinations/…`). It doesn't
+scrape rendered pages. The one exception is the CSRF token, which it reads from the HTML shell.
 
-- **Search** goes to Algolia, the search backend the site uses. The public app-id rotates, so the
-  CLI keeps a last-known-good fallback. On a stale-credentials response (DNS failure, 401, 403 or
-  404) it reads the app-id, key and index from the live site bundle, caches them, and retries.
-- **Catalog reads** (`/api/...`) are anonymous GET requests. Requests carry the headers the web app
-  sends (user agent, `accept-language`, app version). The TLS client hello is set to match
-  Chrome's, and the connection uses HTTP/1.1. If that setup fails, the CLI uses Go's standard
-  transport.
-- **Rate limits.** On HTTP 429 or 503 the client waits and retries a limited number of times. It
-  honours `Retry-After` when the server sends it, otherwise it uses exponential backoff with
-  jitter. `cart set-many` limits concurrent price lookups (`MERCADONA_CONCURRENCY`, 1 to 16).
-- **Fails closed.** `checkout submit` needs `--yes`, and if a
-  spending limit is set it refuses to submit when the order total is over the limit or can't be
-  fetched to check.
-- **Auth, cart and checkout** use your own account. Log in once and the token is cached in
-  `~/.mercadona/`. An expired token is refreshed once automatically when credentials are stored.
+- **Session.** A cookie jar (`global_sid`, `VISITORID`, `AWSALB*`, `aws-waf-token`) is persisted
+  across runs. Writes carry the session's `X-CSRF-TOKEN`. If a write is rejected for CSRF, the
+  token is re-fetched once and the write retried.
+- **Cart writes** use `apply-quantity`, which takes *relative* deltas. The CLI computes them from
+  your absolute targets against the current cart, so `set-many` is one request whatever its size.
+- **TLS.** The client hello mimics Chrome's (uTLS) over HTTP/1.1. If that setup fails, the CLI
+  falls back to Go's standard transport.
+- **AWS WAF.** The shop's WAF answers bursty clients with a JavaScript challenge (HTTP 202,
+  `x-amzn-waf-action: challenge`). In testing, roughly 40–50 requests in a couple of minutes from
+  one IP tripped it, and it cleared after about 5 minutes. To avoid it, the CLI spaces requests
+  ≥250 ms apart and runs at most 2 lookups in parallel (`ALCAMPO_CONCURRENCY`, 1–16). If it's
+  challenged anyway, it stops with a clear error instead of hammering. A browser-imported
+  session carrying `aws-waf-token` satisfies the challenge for a while. The CLI doesn't try to
+  solve challenges itself.
+- **Rate limits.** On HTTP 429/503 it retries with `Retry-After` or exponential backoff plus jitter.
+- **Region.** Catalog and delivery follow the session's region: the shop's default region for an
+  anonymous session, your address's region for a logged-in one.
 
 ## Config
 
-State lives in `~/.mercadona/` (override with `MERCADONA_CONFIG_DIR`):
+State lives in `~/.alcampo/` (override with `ALCAMPO_CONFIG_DIR`), all `0600`:
 
-- `config.toml` — user-authored (`0600`): `[auth] refresh_token` (+ optional `username`/`password`),
-  `[defaults] warehouse`/`lang`/`postal_code` (honoured by every command; set via `set-postal`),
-  `[limits] max_eur`.
-- `token.json` — cached session: access + refresh token + cookie (machine-managed).
-- `algolia.json` — cached/auto-refreshed search credentials.
+- `session.json` — cookies + CSRF token (machine-managed; **secret** — it *is* your login).
+- `config.toml` — user-authored: `[limits] max_eur`.
 
 ## Claude skill
 
-This repo bundles a Claude Code skill, **`mercadona-shop`** (`.claude/skills/mercadona-shop/`),
-that drives this CLI to do the grocery shop: turn a list into priced products, fill the cart,
-prepare delivery checkout, and place the order only on explicit user consent. Install it where
-your Claude reads skills (symlink or copy `.claude/skills/mercadona-shop` into `~/.claude/skills/`);
-it points back at this binary, so build the CLI first.
-
-## Status
-
-Read core (`search`, `batch`, `product`, `categories`) and the full authenticated leg
-(`import-har`/`import-curl`/`set-refresh`, `whoami`, `cart`, `checkout`) are implemented and
-verified live: reads, Algolia self-refresh, the uTLS fingerprint, headless token refresh, and a
-real-session `cart get` → `checkout create` → `set-delivery` → `checkout get` all work, and the
-order total the spending guard reads is confirmed against a live checkout. `checkout submit` is
-gated behind both `--yes` and the `--max` budget cap; it has not been run end-to-end (no real
-order has been placed).
+This repo bundles a Claude Code skill, **`alcampo-shop`** (`.claude/skills/alcampo-shop/`), that
+drives this CLI to do the grocery shop. It turns a list into priced products, confirms them with
+you, fills the cart, and prepares delivery. Payment is handed to the browser only on your explicit
+go-ahead. Install it where your Claude reads skills (symlink or copy
+`.claude/skills/alcampo-shop` into `~/.claude/skills/`).
 
 ## Releasing
 
@@ -411,18 +224,13 @@ Push a semver tag — GitHub Actions
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-The workflow is hardened: actions are pinned to commit SHAs, permissions are per-job
-least-privilege, and **npm publishes via OIDC Trusted Publishing** (no long-lived token) with a
-SLSA provenance attestation. One-time setup: configure a Trusted Publisher for `@ivorpad/mercadona`
-on npmjs.com (Settings → Trusted Publisher → GitHub Actions: user `ivorpad`, repo `mercadona-cli`,
-workflow `release.yml`).
+Actions are pinned to commit SHAs, permissions are least-privilege per job, and npm publishes via
+OIDC Trusted Publishing (no long-lived token) with provenance. One-time setup: configure a Trusted
+Publisher for `@alvaroborras/alcampo` on npmjs.com (GitHub Actions: user `alvaroborras`, repo
+`alcampo-cli`, workflow `release.yml`).
 
 Dry-run the build locally (no publish; artifacts land in `./dist`):
 
 ```bash
 goreleaser release --snapshot --clean --skip=publish
 ```
-
-**Homebrew** is prewired but disabled — to turn on `brew install ivorpad/tap/mercadona`,
-follow the commented `brews:` block in [`.goreleaser.yaml`](.goreleaser.yaml) (needs a
-`homebrew-tap` repo + a `HOMEBREW_TAP_GITHUB_TOKEN` secret).

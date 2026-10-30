@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ivorjpc/mercadona/internal/client"
+	"github.com/alvaroborras/alcampo-cli/internal/client"
 )
 
 func TestCollectSetManyPositional(t *testing.T) {
@@ -59,34 +59,34 @@ func TestReadChangesFile(t *testing.T) {
 	}
 }
 
-// priceBasket reuses prices already present on the seed lines (from a cart GET),
-// so a fully-seeded basket needs no network — exercise that path here.
-func TestPriceBasketSeeded(t *testing.T) {
-	seed := []client.CartLine{
-		{ProductID: "1", UnitPrice: "1.20", DisplayName: "Arroz"},
-		{ProductID: "2", UnitPrice: "6.00", DisplayName: "Gambón"},
+// priceBasket prices the final quantities from the current cart lines and the
+// looked-up products (lookups win, being fresher) — no network involved.
+func TestPriceBasket(t *testing.T) {
+	current := []client.CartItem{
+		{ProductID: "u1", Quantity: 1, Price: client.Money{Amount: "1.20"}},
+		{ProductID: "u2", Quantity: 1, Price: client.Money{Amount: "6.00"}},
 	}
-	lines := []client.CartLine{
-		{ProductID: "1", Quantity: 2}, // 2 × 1.20 = 2.40
-		{ProductID: "2", Quantity: 1}, // 1 × 6.00 = 6.00
+	looked := map[string]client.Product{
+		"54180": {ProductID: "u3", Price: client.Money{Amount: "5.28"}},
 	}
-	bp := priceBasket(client.New(), lines, seed)
-	if !bp.complete {
-		t.Fatalf("basket should be complete from the seed (no fetch needed)")
-	}
-	if bp.totalCents != 840 {
-		t.Fatalf("totalCents = %d, want 840", bp.totalCents)
-	}
-	if bp.names["2"] != "Gambón" {
-		t.Fatalf("name not carried: %q", bp.names["2"])
+	final := map[string]float64{"u1": 2, "u2": 1, "u3": 1} // 2.40 + 6.00 + 5.28
+	bp := priceBasket(final, current, looked)
+	if !bp.complete || bp.totalCents != 1368 {
+		t.Fatalf("got complete=%v cents=%d, want true/1368", bp.complete, bp.totalCents)
 	}
 }
 
 func TestPriceBasketFractionalQty(t *testing.T) {
-	seed := []client.CartLine{{ProductID: "9", UnitPrice: "10.00", DisplayName: "Jamón"}}
-	lines := []client.CartLine{{ProductID: "9", Quantity: 0.35}} // 0.35 × 10.00 = 3.50
-	bp := priceBasket(client.New(), lines, seed)
+	current := []client.CartItem{{ProductID: "u9", Price: client.Money{Amount: "10.00"}}}
+	bp := priceBasket(map[string]float64{"u9": 0.35}, current, nil) // 0.35 × 10.00 = 3.50
 	if !bp.complete || bp.totalCents != 350 {
 		t.Fatalf("got complete=%v cents=%d, want true/350", bp.complete, bp.totalCents)
+	}
+}
+
+func TestPriceBasketIncompleteWhenUnpriced(t *testing.T) {
+	bp := priceBasket(map[string]float64{"unknown": 1}, nil, nil)
+	if bp.complete {
+		t.Fatal("a line with no known price must mark the estimate incomplete")
 	}
 }

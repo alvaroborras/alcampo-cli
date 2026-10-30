@@ -4,8 +4,6 @@ import (
 	"flag"
 	"reflect"
 	"testing"
-
-	"github.com/ivorjpc/mercadona/internal/config"
 )
 
 // checkBudget is the safety-critical gate — exercise the table exhaustively.
@@ -37,33 +35,6 @@ func TestCheckBudget(t *testing.T) {
 	}
 }
 
-// newClient resolves warehouse/lang by precedence: explicit flag > config
-// [defaults] > built-in mad1/es. The config layer is what `set-postal` writes,
-// so this guards the bug where [defaults] was defined but silently ignored.
-func TestNewClientWarehousePrecedence(t *testing.T) {
-	t.Setenv("MERCADONA_CONFIG_DIR", t.TempDir())
-
-	// no config yet → built-in default mad1/es
-	if cl := newClient(&common{}); cl.Warehouse != "mad1" || cl.Lang != "es" {
-		t.Fatalf("no config: wh=%q lang=%q, want mad1/es", cl.Warehouse, cl.Lang)
-	}
-
-	// config [defaults] is honoured when no flag is given
-	var cfg config.Config
-	cfg.Defaults.Warehouse, cfg.Defaults.Lang = "mad3", "ca"
-	if err := config.SaveConfig(cfg); err != nil {
-		t.Fatal(err)
-	}
-	if cl := newClient(&common{}); cl.Warehouse != "mad3" || cl.Lang != "ca" {
-		t.Fatalf("config default: wh=%q lang=%q, want mad3/ca", cl.Warehouse, cl.Lang)
-	}
-
-	// explicit --wh/--lang beat the config default
-	if cl := newClient(&common{wh: "bcn1", lang: "en"}); cl.Warehouse != "bcn1" || cl.Lang != "en" {
-		t.Fatalf("flag override: wh=%q lang=%q, want bcn1/en", cl.Warehouse, cl.Lang)
-	}
-}
-
 // reorderArgs must let flags appear after positionals (otherwise --max would be
 // silently dropped — a safety footgun).
 func TestReorderArgs(t *testing.T) {
@@ -85,7 +56,6 @@ func TestReorderArgs(t *testing.T) {
 			fs := flag.NewFlagSet("t", flag.ContinueOnError)
 			maxV := fs.Float64("max", 0, "")
 			jsonV := fs.Bool("json", false, "")
-			fs.String("wh", "mad1", "")
 			if err := fs.Parse(reorderArgs(fs, c.in)); err != nil {
 				t.Fatalf("parse(%v): %v", c.in, err)
 			}

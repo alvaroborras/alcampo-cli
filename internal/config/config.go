@@ -1,6 +1,6 @@
-// Package config handles on-disk state under ~/.mercadona: the user-authored
-// config.toml (credentials + defaults) and the machine-managed session cache
-// (rotating tokens). MERCADONA_CONFIG_DIR overrides the directory.
+// Package config handles on-disk state under ~/.alcampo: the user-authored
+// config.toml (defaults + limits) and the machine-managed session cache
+// (cookies + CSRF token). ALCAMPO_CONFIG_DIR overrides the directory.
 package config
 
 import (
@@ -13,29 +13,22 @@ import (
 
 const configFile = "config.toml"
 
-// Dir is ~/.mercadona (or $MERCADONA_CONFIG_DIR).
+// Dir is ~/.alcampo (or $ALCAMPO_CONFIG_DIR).
 func Dir() string {
-	if d := os.Getenv("MERCADONA_CONFIG_DIR"); d != "" {
+	if d := os.Getenv("ALCAMPO_CONFIG_DIR"); d != "" {
 		return d
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return ".mercadona"
+		return ".alcampo"
 	}
-	return filepath.Join(home, ".mercadona")
+	return filepath.Join(home, ".alcampo")
 }
 
-// Config mirrors ~/.mercadona/config.toml.
+// Config mirrors ~/.alcampo/config.toml.
 type Config struct {
-	Auth struct {
-		Username     string `toml:"username"`
-		Password     string `toml:"password"`
-		RefreshToken string `toml:"refresh_token"`
-	} `toml:"auth"`
 	Defaults struct {
-		Warehouse  string `toml:"warehouse"`
-		Lang       string `toml:"lang"`
-		PostalCode string `toml:"postal_code"` // human-meaningful source; warehouse is derived from it
+		PostalCode string `toml:"postal_code"` // informational; the session cookie carries the real region
 	} `toml:"defaults"`
 	Limits struct {
 		MaxEUR float64 `toml:"max_eur"` // refuse carts/checkouts over this total (0 = no limit)
@@ -53,7 +46,7 @@ func LoadConfig() (Config, error) {
 	return c, err
 }
 
-// SaveConfig writes config.toml at 0600 (it can hold a plaintext password).
+// SaveConfig writes config.toml at 0600.
 func SaveConfig(c Config) error {
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return err

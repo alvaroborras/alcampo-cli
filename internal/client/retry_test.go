@@ -26,9 +26,14 @@ func (s *seqRT) RoundTrip(*http.Request) (*http.Response, error) {
 	if code == http.StatusTooManyRequests || code == http.StatusServiceUnavailable {
 		h.Set("Retry-After", "0")
 	}
+	body := `{"ok":true}`
+	if code == http.StatusAccepted { // what the AWS WAF challenge looks like
+		h.Set("x-amzn-waf-action", "challenge")
+		body = ""
+	}
 	return &http.Response{
 		StatusCode: code,
-		Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
+		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     h,
 	}, nil
 }
@@ -36,6 +41,7 @@ func (s *seqRT) RoundTrip(*http.Request) (*http.Response, error) {
 func testClient(rt http.RoundTripper) *Client {
 	c := New()
 	c.HTTP = &http.Client{Transport: rt}
+	c.MinInterval = 0
 	return c
 }
 
@@ -97,5 +103,32 @@ func TestIsRateLimited(t *testing.T) {
 	}
 	if isRateLimited(&APIError{Status: 500}) || isRateLimited(&APIError{Status: 403}) || isRateLimited(nil) {
 		t.Fatal("500/403/nil should not be rate-limited")
+	}
+}
+
+func TestDoJSONMapsWAFChallenge(t *testing.T) {
+	rt := &seqRT{codes: []int{202}}
+	c := testClient(rt)
+	err := c.DoJSON("GET", "https://x/api/", nil, nil)
+	if !errors.Is(err, ErrWAFChallenge) {
+		t.Fatalf("expected ErrWAFChallenge for a 202 challenge, got %v", err)
+	}
+	if rt.calls != 1 {
+		t.Fatalf("a WAF challenge must not be retried; got %d calls", rt.calls)
+	}
+}
+
+func TestIsWAFChallenge(t *testing.T) {
+	h := http.Header{}
+	if !isWAFChallenge(&http.Response{StatusCode: 202, Header: h}, nil) {
+		t.Fatal("empty 202 is the WAF challenge")
+	}
+	if isWAFChallenge(&http.Response{StatusCode: 202, Header: h}, []byte(`{"ok":true}`)) {
+		t.Fatal("a 202 with a body is a real API response")
+	}
+	h2 := http.Header{}
+	h2.Set("x-amzn-waf-action", "challenge")
+	if !isWAFChallenge(&http.Response{StatusCode: 405, Header: h2}, []byte("x")) {
+		t.Fatal("the challenge header alone must be recognised")
 	}
 }
