@@ -101,7 +101,8 @@ func profileCandidates(ini string) []string {
 }
 
 // Cookies returns the unexpired cookies Firefox holds for hosts ending in
-// hostSuffix (e.g. "compraonline.alcampo.es"), name → value.
+// hostSuffix (e.g. "compraonline.alcampo.es"), name → value: persistent ones
+// from cookies.sqlite merged with session cookies from the session store.
 func Cookies(profileDir, hostSuffix string) (map[string]string, error) {
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		return nil, ErrNoSQLite
@@ -121,7 +122,20 @@ func Cookies(profileDir, hostSuffix string) (map[string]string, error) {
 	for _, ext := range []string{"-wal", "-shm"} {
 		_ = copyFile(src+ext, db+ext) // absent when Firefox isn't running
 	}
-	return query(db, hostSuffix, time.Now())
+	cookies, err := query(db, hostSuffix, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	// Session cookies (incl. the shop's global_sid) only live in the session
+	// store; it is the fresher source, so it wins on a name clash.
+	sess, err := sessionCookies(profileDir, hostSuffix)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range sess {
+		cookies[k] = v
+	}
+	return cookies, nil
 }
 
 // query runs the cookie SELECT against a (copied) cookies.sqlite. Firefox has

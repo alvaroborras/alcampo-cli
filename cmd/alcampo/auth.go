@@ -159,8 +159,9 @@ func cmdImportFirefox(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(cookies) == 0 {
-		return fmt.Errorf("no compraonline.alcampo.es cookies in the Firefox profile %s — open the shop in Firefox first", dir)
+	if cookies["global_sid"] == "" {
+		return fmt.Errorf("no Alcampo session cookie (global_sid) in the Firefox profile %s — open %s in Firefox "+
+			"(Firefox writes session cookies to disk every ~15 s, so retry shortly after), or pass --profile", dir, client.BaseURL)
 	}
 	if *auto {
 		cfg.Session.Browser = "firefox"
@@ -171,7 +172,7 @@ func cmdImportFirefox(args []string) error {
 		fmt.Fprintln(os.Stderr, "automatic Firefox sync on: every run re-reads the session from Firefox (keep a shop tab open so its WAF token stays fresh; `alcampo import-firefox --off` to stop)")
 	}
 	fmt.Fprintf(os.Stderr, "Firefox profile: %s\n", dir)
-	return importCookies(cf, cookies, "Firefox")
+	return importCookies(cf, cookies, "Firefox profile")
 }
 
 // set-cookie seeds the session from a raw Cookie header (DevTools → Application
